@@ -13,6 +13,7 @@ import { registerUpdateCommand } from './commands/update';
 import { registerRecoveryCommand } from './commands/recovery';
 import { registerPolymarketCommand } from './commands/polymarket';
 import { registerSubkeyCommand } from './commands/subkey';
+import { registerServicesCommand } from './commands/services';
 import { runPrune } from './commands/prune';
 import { outputError, sanitizeErrorMessage } from './utils/display';
 import { VERSION } from './version';
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
     registerOtpCommand(program, ctx);
     registerConfigCommand(program, ctx);
     registerUpdateCommand(program);
+    registerServicesCommand(program);
 
     registerRecoveryCommand(program, ctx);
     registerPolymarketCommand(program, ctx);

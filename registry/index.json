@@ -1,0 +1,29 @@
+{
+  "services": [
+    {
+      "id": "agentmail",
+      "name": "AgentMail",
+      "description": "Email inboxes for AI agents.",
+      "categories": ["ai", "social"],
+      "serviceUrl": "https://x402.api.agentmail.to",
+      "tags": ["email", "inboxes", "domains", "drafts", "threads", "webhooks", "messaging"],
+      "docs": {
+        "homepage": "https://docs.agentmail.to"
+      },
+      "endpoints": []
+    },
+    {
+      "id": "browserbase",
+      "name": "Browserbase",
+      "description": "Headless browser sessions, web search, and page fetching for AI agents.",
+      "categories": ["web", "compute", "search"],
+      "serviceUrl": "https://x402.browserbase.com",
+      "tags": ["browser", "scraping", "automation", "headless", "search", "fetch"],
+      "docs": {
+        "homepage": "https://docs.browserbase.com",
+        "llmsTxt": "https://docs.browserbase.com/llms.txt"
+      },
+      "endpoints": []
+    }
+  ]
+}
