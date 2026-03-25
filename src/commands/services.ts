@@ -81,8 +81,15 @@ function formatPricing(pricing: Pricing): string {
   switch (pricing.type) {
     case 'free':
       return 'free';
-    case 'fixed':
-      return `$${pricing.amount} ${pricing.per ?? 'charge'}`;
+    case 'fixed': {
+      const amount = pricing.amount;
+      const per = pricing.per ?? 'charge';
+      if (!amount) {
+        // Fallback when amount is missing or undefined to avoid "$undefined ..."
+        return `fixed price per ${per}`;
+      }
+      return `$${amount} ${per}`;
+    }
     case 'dynamic':
       return pricing.description ?? 'dynamic charge';
   }
