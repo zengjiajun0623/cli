@@ -162,11 +162,12 @@ function printDetail(svc: Service): void {
   field('Service URL', svc.serviceUrl);
   field('Tags', svc.tags.join(', '));
 
-  if (svc.docs.homepage || svc.docs.llmsTxt) {
+  const docs = svc.docs ?? {};
+  if (docs.homepage || docs.llmsTxt) {
     console.log();
     console.log(chalk.bold('Docs:'));
-    if (svc.docs.homepage) field('Homepage', svc.docs.homepage);
-    if (svc.docs.llmsTxt) field('LLMs.txt', svc.docs.llmsTxt);
+    if (docs.homepage) field('Homepage', docs.homepage);
+    if (docs.llmsTxt) field('LLMs.txt', docs.llmsTxt);
   }
 
   if (svc.endpoints.length > 0) {
