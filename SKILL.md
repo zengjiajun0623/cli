@@ -71,61 +71,54 @@ For batch calls, repeat `--tx` in the same order for both `simulate` and `send`.
 
 Some commands pause for email verification and return an `otpPending` object. Only the user should provide the code. The agent runs `elytro otp submit <id> <6-digit-code>` on their behalf -- do not ask the user to run CLI commands for OTP. Use `elytro otp list` to see pending verifications.
 
-## x402 payments(Beta)
+## x402 payments (beta)
 
-> It's a beta feature. Ask user's permission to proceed.
+> Beta feature. Ask user's permission before proceeding with any paid request.
 
-Elytro handles HTTP 402 paywalls automatically. Two payment paths exist: ERC-7710 delegations (preferred, requires setup) and EIP-3009 (USDC auto-sign, zero setup).
+### Service discovery
+
+Browse verified x402-compatible services before making paid requests:
+
+```bash
+elytro services                   # list all available services
+elytro services <id>              # show endpoints, pricing, and example commands
+```
+
+When the user asks "what paid APIs are available" or wants to find a service, start here. The detail view includes ready-to-use `elytro request` examples per endpoint.
+
+### Paid request workflow
+
+1. **Discover** (if the user doesn't already have a URL): `elytro services` to browse, `elytro services <id>` for endpoint details.
+2. **Preview**: `elytro request --dry-run <url>` to show the price. Always do this before paying.
+3. **Set up delegation** (only if dry-run shows ERC-7710): check `delegation list` for a match. If none, guide user through `delegation add` with the server-provided parameters.
+4. **Pay** (after explicit user approval): `elytro request <url> [--method POST --json '...']`.
+5. **Handle failure**: if payment fails with "expired", suggest `delegation renew` or `delegation sync --prune`.
+
+EIP-3009 (USDC) requires no delegation setup; Elytro auto-signs.
 
 ### Delegation lifecycle
 
-Store a delegation provided by the API server:
-
 ```bash
+# Store
 elytro delegation add \
   --manager 0xDelegationManager --token 0xUSDC \
   --payee 0xMerchant --amount 1000000 \
   --permission 0xabc123... \
   --verify          # optional: simulate on-chain before storing
-```
 
-Before relying on a delegation, verify it is still valid:
+# Verify
+elytro delegation verify <id>
+elytro delegation sync --prune          # batch verify, remove expired
 
-```bash
-elytro delegation verify <id>           # single check: expiry + balance + on-chain simulation
-elytro delegation sync --prune          # batch: verify all, remove expired
-```
-
-Renew before expiry (pass the new permission context from the server):
-
-```bash
+# Renew
 elytro delegation renew <id> --expires-at 2026-04-01T00:00:00Z --permission 0xnew... --remove-old
-```
 
-Revoke when no longer needed:
-
-```bash
-elytro delegation revoke <id> --calldata 0x...   # on-chain revoke + local remove
-elytro delegation remove <id>                     # local remove only (no on-chain)
+# Revoke
+elytro delegation revoke <id> --calldata 0x...   # on-chain + local
+elytro delegation remove <id>                     # local only
 ```
 
 Other management: `delegation list`, `delegation show <id>`.
-
-### Making paid requests
-
-Always dry-run first so the user can see the price:
-
-```bash
-elytro request --dry-run <url>
-```
-
-Then pay (after user approval):
-
-```bash
-elytro request <url> [--method POST --json '{"topic":"defi"}']
-```
-
-If the server offers ERC-7710, the CLI matches a stored delegation automatically. If only EIP-3009 (USDC), Elytro auto-signs with no delegation needed.
 
 Full workflow and troubleshooting: [docs/x402.md](docs/x402.md)
 

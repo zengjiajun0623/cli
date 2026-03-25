@@ -64,6 +64,13 @@ CLI errors include `error.message`, `error.data.hint`, and `suggestion` fields. 
 | `recovery initiate <address> --chain <id> [--from-backup <file>]`                     | `Done: recovery initiated.` Show recoveryUrl prominently. Tell user to share with guardians. |
 | `recovery status [--wallet <addr> --recovery-id <hex>]`                               | `Status:` with recovery phase, signature count, countdown if applicable.                     |
 
+### Service Discovery
+
+| Run             | Tell the user                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `services`      | `Found <n> service(s).` One line per service: id, name, category. Mention `services <id>` for details.                   |
+| `services <id>` | Service name, description, endpoint list with pricing. Include example `request` command for the most relevant endpoint. |
+
 ### x402 / Delegations
 
 | Run                                                                                                             | Tell the user                                                                                     |
@@ -79,13 +86,14 @@ CLI errors include `error.message`, `error.data.hint`, and `suggestion` fields. 
 | `request --dry-run <url>`                                                                                       | `Preview:` paywall requires amount to payee. No funds moved.                                      |
 | `request <url> [--method POST --json ...]`                                                                      | `Paid:` amount to payee. Tx hash from settlement. Only after user approval.                       |
 
-**Delegation decision tree for the agent:**
+**Paid request decision tree for the agent:**
 
-1. User asks to call a paid API -> `request --dry-run <url>` first.
-2. If dry-run shows ERC-7710 requirement -> check `delegation list`. If no match -> guide user through `delegation add` with the server-provided parameters.
-3. If dry-run shows EIP-3009 (USDC) -> no delegation needed, proceed directly.
-4. Before paying -> tell user the amount, token, and payee, then wait for approval.
-5. After paying -> report settlement tx hash. If payment fails with "expired" -> suggest `delegation renew` or `delegation sync --prune`.
+1. User wants to find a paid API -> `services` to browse, `services <id>` for endpoint details and example commands.
+2. User has a URL (or picked one from services) -> `request --dry-run <url>` to preview the price.
+3. If dry-run shows ERC-7710 requirement -> check `delegation list`. If no match -> guide user through `delegation add` with the server-provided parameters.
+4. If dry-run shows EIP-3009 (USDC) -> no delegation needed, proceed directly.
+5. Before paying -> tell user the amount, token, and payee, then wait for approval.
+6. After paying -> report settlement tx hash. If payment fails with "expired" -> suggest `delegation renew` or `delegation sync --prune`.
 
 ---
 
