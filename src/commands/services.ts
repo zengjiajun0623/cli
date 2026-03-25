@@ -22,11 +22,6 @@ interface Endpoint {
   docs?: string; // link to endpoint-specific documentation
 }
 
-interface ServiceDocs {
-  homepage?: string;
-  llmsTxt?: string;
-}
-
 interface Service {
   id: string;
   name: string;
@@ -34,7 +29,10 @@ interface Service {
   categories: string[];
   serviceUrl: string;
   tags: string[];
-  docs: ServiceDocs;
+}
+
+interface ServiceDetail extends Service {
+  docs: string[];
   endpoints: Endpoint[];
 }
 
@@ -56,7 +54,7 @@ async function fetchServices(): Promise<Service[]> {
   return data.services;
 }
 
-async function fetchService(id: string): Promise<Service> {
+async function fetchService(id: string): Promise<ServiceDetail> {
   const res = await fetch(`${BASE}${id}.json`, {
     headers: { Accept: 'application/json' },
   });
@@ -68,7 +66,7 @@ async function fetchService(id: string): Promise<Service> {
   if (!res.ok) {
     throw new Error(`Registry returned HTTP ${res.status}`);
   }
-  return (await res.json()) as Service;
+  return (await res.json()) as ServiceDetail;
 }
 
 // ─── Formatting helpers ────────────────────────────────────────────────
@@ -150,7 +148,7 @@ function buildExample(method: string, serviceUrl: string, path: string): string 
   return parts.join(' ');
 }
 
-function printDetail(svc: Service): void {
+function printDetail(svc: ServiceDetail): void {
   console.log();
   console.log(chalk.bold(svc.name));
   console.log(chalk.gray('─'.repeat(svc.name.length + 2)));
@@ -162,12 +160,13 @@ function printDetail(svc: Service): void {
   field('Service URL', svc.serviceUrl);
   field('Tags', svc.tags.join(', '));
 
-  const docs = svc.docs ?? {};
-  if (docs.homepage || docs.llmsTxt) {
+  const docs = Array.isArray(svc.docs) ? svc.docs : [];
+  if (docs.length > 0) {
     console.log();
     console.log(chalk.bold('Docs:'));
-    if (docs.homepage) field('Homepage', docs.homepage);
-    if (docs.llmsTxt) field('LLMs.txt', docs.llmsTxt);
+    for (const url of docs) {
+      console.log(`  ${url}`);
+    }
   }
 
   const endpoints = Array.isArray(svc.endpoints) ? svc.endpoints : [];
@@ -209,7 +208,7 @@ function outputServiceList(services: Service[]): void {
   });
 }
 
-function outputServiceDetail(svc: Service): void {
+function outputServiceDetail(svc: ServiceDetail): void {
   outputResult({
     id: svc.id,
     name: svc.name,
