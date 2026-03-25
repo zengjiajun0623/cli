@@ -253,7 +253,8 @@ export function registerServicesCommand(program: Command): void {
           useJson ? outputServiceList(services) : printList(services);
         }
       } catch (err) {
-        spinner.fail('Failed to fetch service catalog.');
+        const messageBase = id ? 'Failed to fetch service details.' : 'Failed to fetch service catalog.';
+        spinner.fail(messageBase);
         outputError(-32000, (err as Error).message);
       }
     });
