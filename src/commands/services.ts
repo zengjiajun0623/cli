@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import chalk from 'chalk';
-import { outputError } from '../utils/display';
+import { outputError, outputResult } from '../utils/display';
 import { SERVICE_REGISTRY_API } from '../constants/serviceRegistry';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -170,11 +170,12 @@ function printDetail(svc: Service): void {
     if (docs.llmsTxt) field('LLMs.txt', docs.llmsTxt);
   }
 
-  if (svc.endpoints.length > 0) {
+  const endpoints = Array.isArray(svc.endpoints) ? svc.endpoints : [];
+  if (endpoints.length > 0) {
     console.log();
     console.log(chalk.bold('Endpoints:'));
     const indent = '  ' + ' '.repeat(METHOD_COL + 1);
-    for (const ep of svc.endpoints) {
+    for (const ep of endpoints) {
       console.log(
         `  ${chalk.cyan(ep.method.padStart(METHOD_COL))} ${ep.path.padEnd(PATH_COL)}  ${formatPricing(ep.pricing)}`,
       );
@@ -194,6 +195,41 @@ function printDetail(svc: Service): void {
   console.log();
 }
 
+// ─── Structured (JSON) output ─────────────────────────────────────────
+
+function outputServiceList(services: Service[]): void {
+  outputResult({
+    services: services.map((svc) => ({
+      id: svc.id,
+      name: svc.name,
+      categories: svc.categories,
+      serviceUrl: svc.serviceUrl,
+      description: svc.description,
+    })),
+  });
+}
+
+function outputServiceDetail(svc: Service): void {
+  outputResult({
+    id: svc.id,
+    name: svc.name,
+    description: svc.description,
+    categories: svc.categories,
+    serviceUrl: svc.serviceUrl,
+    tags: svc.tags,
+    docs: svc.docs,
+    endpoints: (Array.isArray(svc.endpoints) ? svc.endpoints : []).map((ep) => ({
+      method: ep.method,
+      path: ep.path,
+      description: ep.description,
+      pricing: ep.pricing,
+      ...(ep.note ? { note: ep.note } : {}),
+      ...(ep.docs ? { docs: ep.docs } : {}),
+      example: buildExample(ep.method, svc.serviceUrl, ep.path),
+    })),
+  });
+}
+
 // ─── Command registration ─────────────────────────────────────────────
 
 export function registerServicesCommand(program: Command): void {
@@ -201,17 +237,21 @@ export function registerServicesCommand(program: Command): void {
     .command('services')
     .description('Browse Elytro-verified x402-compatible services')
     .argument('[id]', 'Service ID for detailed information')
-    .action(async (id?: string) => {
+    .option('--json', 'Output structured JSON instead of human-readable text')
+    .action(async (id?: string, options?: { json?: boolean }) => {
+      // Use JSON output when --json is passed or stdout is not a TTY (e.g. pipes, MCP callers)
+      const useJson = options?.json || !process.stdout.isTTY;
+
       const spinner = ora(id ? `Fetching service info…` : 'Fetching service catalog…').start();
       try {
         if (id) {
           const svc = await fetchService(id);
           spinner.stop();
-          printDetail(svc);
+          useJson ? outputServiceDetail(svc) : printDetail(svc);
         } else {
           const services = await fetchServices();
           spinner.stop();
-          printList(services);
+          useJson ? outputServiceList(services) : printList(services);
         }
       } catch (err) {
         spinner.fail('Failed to fetch service catalog.');
