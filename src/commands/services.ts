@@ -4,6 +4,23 @@ import chalk from 'chalk';
 import { outputError, outputResult } from '../utils/display';
 import { SERVICE_REGISTRY_API } from '../constants/serviceRegistry';
 
+// ─── Safety helpers ──────────────────────────────────────────────────
+
+/** Strip ANSI escape sequences and C0/C1 control characters (except \n) from untrusted strings. */
+function sanitize(input: string): string {
+  // 1. Remove ANSI escape sequences (CSI, OSC, and simple ESC sequences)
+  // 2. Remove remaining C0 control chars (\x00-\x1F except \n) and DEL (\x7F)
+  return input
+    .replace(/\x1B(?:\[[0-9;]*[A-Za-z]|\][^\x07]*\x07|[^[\]])/g, '')
+    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '');
+}
+
+/** Validate a service ID: alphanumeric, hyphens, and underscores only. */
+const VALID_SERVICE_ID = /^[a-z0-9][a-z0-9_-]*$/i;
+
+/** Default timeout in milliseconds for registry HTTP requests. */
+const FETCH_TIMEOUT_MS = 10_000;
+
 // ─── Types ────────────────────────────────────────────────────────────
 
 interface Pricing {
@@ -43,6 +60,7 @@ const BASE = SERVICE_REGISTRY_API.endsWith('/') ? SERVICE_REGISTRY_API : `${SERV
 async function fetchServices(): Promise<Service[]> {
   const res = await fetch(`${BASE}index.json`, {
     headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`Registry returned HTTP ${res.status}`);
@@ -55,8 +73,14 @@ async function fetchServices(): Promise<Service[]> {
 }
 
 async function fetchService(id: string): Promise<ServiceDetail> {
+  if (!VALID_SERVICE_ID.test(id)) {
+    throw new Error(
+      `Invalid service ID "${sanitize(id)}". IDs may only contain letters, digits, hyphens, and underscores.`,
+    );
+  }
   const res = await fetch(`${BASE}${id}.json`, {
     headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (res.status === 404) {
     throw new Error(
@@ -80,16 +104,15 @@ function formatPricing(pricing: Pricing): string {
     case 'free':
       return 'free';
     case 'fixed': {
-      const amount = pricing.amount;
-      const per = pricing.per ?? 'charge';
+      const amount = pricing.amount ? sanitize(pricing.amount) : undefined;
+      const per = sanitize(pricing.per ?? 'charge');
       if (!amount) {
-        // Fallback when amount is missing or undefined to avoid "$undefined ..."
         return `fixed price per ${per}`;
       }
       return `$${amount} ${per}`;
     }
     case 'dynamic':
-      return pricing.description ?? 'dynamic charge';
+      return sanitize(pricing.description ?? 'dynamic charge');
   }
 }
 
@@ -113,13 +136,13 @@ function printList(services: Service[]): void {
 
   for (const svc of services) {
     const row =
-      svc.id.padEnd(COL.id) +
+      sanitize(svc.id).padEnd(COL.id) +
       '  ' +
-      truncate(svc.name, COL.name).padEnd(COL.name) +
+      truncate(sanitize(svc.name), COL.name).padEnd(COL.name) +
       '  ' +
-      truncate(svc.categories.join(', '), COL.category).padEnd(COL.category) +
+      truncate(svc.categories.map(sanitize).join(', '), COL.category).padEnd(COL.category) +
       '  ' +
-      svc.serviceUrl;
+      sanitize(svc.serviceUrl);
     console.log('  ' + row);
   }
 
@@ -149,23 +172,30 @@ function buildExample(method: string, serviceUrl: string, path: string): string 
 }
 
 function printDetail(svc: ServiceDetail): void {
+  const name = sanitize(svc.name);
+  const description = sanitize(svc.description);
+  const id = sanitize(svc.id);
+  const serviceUrl = sanitize(svc.serviceUrl);
+  const categories = svc.categories.map(sanitize).join(', ');
+  const tags = svc.tags.map(sanitize).join(', ');
+
   console.log();
-  console.log(chalk.bold(svc.name));
-  console.log(chalk.gray('─'.repeat(svc.name.length + 2)));
-  console.log(svc.description);
+  console.log(chalk.bold(name));
+  console.log(chalk.gray('─'.repeat(name.length + 2)));
+  console.log(description);
   console.log();
 
-  field('ID', svc.id);
-  field('Categories', svc.categories.join(', '));
-  field('Service URL', svc.serviceUrl);
-  field('Tags', svc.tags.join(', '));
+  field('ID', id);
+  field('Categories', categories);
+  field('Service URL', serviceUrl);
+  field('Tags', tags);
 
   const docs = Array.isArray(svc.docs) ? svc.docs : [];
   if (docs.length > 0) {
     console.log();
     console.log(chalk.bold('Docs:'));
     for (const url of docs) {
-      console.log(`  ${url}`);
+      console.log(`  ${sanitize(url)}`);
     }
   }
 
@@ -175,18 +205,19 @@ function printDetail(svc: ServiceDetail): void {
     console.log(chalk.bold('Endpoints:'));
     const indent = '  ' + ' '.repeat(METHOD_COL + 1);
     for (const ep of endpoints) {
+      const method = sanitize(ep.method);
+      const path = sanitize(ep.path);
+      const epDesc = sanitize(ep.description);
       console.log(
-        `  ${chalk.cyan(ep.method.padStart(METHOD_COL))} ${ep.path.padEnd(PATH_COL)}  ${formatPricing(ep.pricing)}`,
+        `  ${chalk.cyan(method.padStart(METHOD_COL))} ${path.padEnd(PATH_COL)}  ${formatPricing(ep.pricing)}`,
       );
-      console.log(`${indent}${chalk.gray(ep.description)}`);
+      console.log(`${indent}${chalk.gray(epDesc)}`);
       if (ep.note) {
-        console.log(`${indent}${chalk.gray(ep.note)}`);
+        console.log(`${indent}${chalk.gray(sanitize(ep.note))}`);
       }
-      console.log(
-        `${indent}${chalk.gray('example:')} ${buildExample(ep.method, svc.serviceUrl, ep.path)}`,
-      );
+      console.log(`${indent}${chalk.gray('example:')} ${buildExample(method, serviceUrl, path)}`);
       if (ep.docs) {
-        console.log(`${indent}${chalk.gray('docs:')}    ${ep.docs}`);
+        console.log(`${indent}${chalk.gray('docs:')}    ${sanitize(ep.docs)}`);
       }
     }
   }
@@ -253,9 +284,15 @@ export function registerServicesCommand(program: Command): void {
           useJson ? outputServiceList(services) : printList(services);
         }
       } catch (err) {
-        const messageBase = id ? 'Failed to fetch service details.' : 'Failed to fetch service catalog.';
+        const messageBase = id
+          ? 'Failed to fetch service details.'
+          : 'Failed to fetch service catalog.';
         spinner.fail(messageBase);
-        outputError(-32000, (err as Error).message);
+        const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+        const detail = isTimeout
+          ? `Request timed out after ${FETCH_TIMEOUT_MS / 1000}s. Check your network connection or try again.`
+          : (err as Error).message;
+        outputError(-32000, detail);
       }
     });
 }
