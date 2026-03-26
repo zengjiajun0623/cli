@@ -5,7 +5,7 @@ description: >
   social recovery. Simulate before send, get user approval on risky steps, and explain outcomes in a
   fixed, user-friendly format (no raw JSON unless asked). Deferred OTP completed with otp submit.
   Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Node >= 24.
-version: 0.7.2
+version: 0.7.4
 homepage: https://elytro.com
 metadata:
   openclaw:
@@ -30,7 +30,7 @@ metadata:
 
 **Command reference and consent list:** [references/commands.md](references/commands.md)
 
-All CLI commands return structured JSON. On error, read `error.message` and `error.data.hint` for what went wrong, and `suggestion` for what to do next. Follow those fields rather than guessing.
+All CLI commands return structured JSON. On error, read `error.message` and `error.data.hint` for what went wrong, and `error.data.suggestion` for what to do next. For payment failures, also check `error.data.facilitatorResponse` for the raw upstream reply. Follow those fields rather than guessing.
 
 ---
 
@@ -89,12 +89,13 @@ When the user asks "what paid APIs are available" or wants to find a service, st
 ### Paid request workflow
 
 1. **Discover** (if the user doesn't already have a URL): `elytro services` to browse, `elytro services <id>` for endpoint details.
-2. **Preview**: `elytro request --dry-run <url>` to show the price. Always do this before paying.
-3. **Set up delegation** (only if dry-run shows ERC-7710): check `delegation list` for a match. If none, guide user through `delegation add` with the server-provided parameters.
-4. **Pay** (after explicit user approval): `elytro request <url> [--method POST --json '...']`.
-5. **Handle failure**: if payment fails with "expired", suggest `delegation renew` or `delegation sync --prune`.
+2. **Check readiness**: `elytro account info` to confirm the account is **deployed**. EIP-3009 payments require on-chain bytecode for ERC-1271 signature verification. If not deployed, run `account activate` first.
+3. **Preview**: `elytro request --dry-run <url>` to show the price. Always do this before paying.
+4. **Set up delegation** (only if dry-run shows ERC-7710): check `delegation list` for a match. If none, guide user through `delegation add` with the server-provided parameters.
+5. **Pay** (after explicit user approval): `elytro request <url> [--method POST --json '...']`.
+6. **Handle failure**: if the result is `payment_failed`, read `error.data.facilitatorResponse` for the raw facilitator reply and `error.data.suggestion` for the recommended next command. Common diagnostic sequence: `account info` then `query balance --token <asset>`, then retry with `--verbose` for full request/response trace. For delegation-specific errors ("expired"), use `delegation renew` or `delegation sync --prune`.
 
-EIP-3009 (USDC) requires no delegation setup; Elytro auto-signs.
+EIP-3009 (USDC) requires no delegation setup; Elytro auto-signs. However, the smart account **must be deployed** (not just counterfactual) because USDC v2.2 calls `isValidSignature` (ERC-1271) on the account contract when `ecrecover` does not match `from`.
 
 ### Delegation lifecycle
 
@@ -180,7 +181,9 @@ Use these output shapes:
 `Code sent to: <maskedEmail>.`
 `Please send me the 6-digit code and I'll complete it for you.`
 
-**Error:** `Couldn't complete: <reason from error.message>.` `Try: <hint from error.data.hint or suggestion>.`
+**Error:** `Couldn't complete: <reason from error.message>.` `Try: <hint from error.data.hint or error.data.suggestion>.`
+
+**Payment failed:** `Payment failed: <reason from error.message>.` `Facilitator said: <error.data.facilitatorResponse summary>.` `Next step: <error.data.suggestion>.`
 
 **Lists:** `Found <n> item(s).` Then one short line per item with the most relevant fields.
 

@@ -2,7 +2,7 @@
 
 Fast lookup: what to run, what needs user consent, and how to phrase results.
 
-CLI errors include `error.message`, `error.data.hint`, and `suggestion` fields. Follow those directly.
+CLI errors include `error.message`, `error.data.hint`, and `error.data.suggestion` fields. For x402 payment failures, also check `error.data.facilitatorResponse` for the raw upstream reply. Follow those fields directly.
 
 ---
 
@@ -84,16 +84,24 @@ CLI errors include `error.message`, `error.data.hint`, and `suggestion` fields. 
 | `delegation revoke <id> [--calldata 0x...] [--keep-local]`                                                      | `Done: delegation revoked.` Include tx hash if on-chain. Note if local record kept.               |
 | `delegation remove <id>`                                                                                        | `Done: local delegation record removed.` Note this does NOT revoke on-chain.                      |
 | `request --dry-run <url>`                                                                                       | `Preview:` paywall requires amount to payee. No funds moved.                                      |
-| `request <url> [--method POST --json ...]`                                                                      | `Paid:` amount to payee. Tx hash from settlement. Only after user approval.                       |
+| `request <url> [--method POST --json ...] [--verbose]`                                                          | `Paid:` amount to payee. Tx hash from settlement. Only after user approval.                       |
+|                                                                                                                 | On failure: `payment_failed` with `facilitatorResponse` (parsed JSON), `suggestion` (next step).  |
 
 **Paid request decision tree for the agent:**
 
 1. User wants to find a paid API -> `services` to browse, `services <id>` for endpoint details and example commands.
-2. User has a URL (or picked one from services) -> `request --dry-run <url>` to preview the price.
-3. If dry-run shows ERC-7710 requirement -> check `delegation list`. If no match -> guide user through `delegation add` with the server-provided parameters.
-4. If dry-run shows EIP-3009 (USDC) -> no delegation needed, proceed directly.
-5. Before paying -> tell user the amount, token, and payee, then wait for approval.
-6. After paying -> report settlement tx hash. If payment fails with "expired" -> suggest `delegation renew` or `delegation sync --prune`.
+2. Verify account readiness -> `account info` to confirm deployed status. EIP-3009 requires a deployed smart account (ERC-1271). If not deployed -> `account activate` first.
+3. User has a URL (or picked one from services) -> `request --dry-run <url>` to preview the price.
+4. If dry-run shows ERC-7710 requirement -> check `delegation list`. If no match -> guide user through `delegation add` with the server-provided parameters.
+5. If dry-run shows EIP-3009 (USDC) -> no delegation needed, proceed directly. Confirm token balance with `query balance --token <asset>`.
+6. Before paying -> tell user the amount, token, and payee, then wait for approval.
+7. After paying -> report settlement tx hash and response body. If result is `payment_failed`:
+   a. Read `error.data.facilitatorResponse` for the raw facilitator reply.
+   b. Follow `error.data.suggestion` for the recommended next command.
+   c. Common diagnostic sequence: `account info` -> `query balance --token <asset>` -> retry with `--verbose`.
+   d. Delegation-specific: "expired" -> `delegation renew` or `delegation sync --prune`.
+   e. Signature-specific: "invalid_signature" -> verify account is deployed, check EIP-712 domain (`extra.name`/`extra.version`).
+   f. Balance-specific: "insufficient_balance" -> fund the account.
 
 ---
 
@@ -111,4 +119,4 @@ Say what you will run, wait for explicit yes, then execute.
 
 ## Error codes (debug only)
 
-If the user cares about numbers: `-32602` bad parameters, `-32002` wallet/account not ready, `-32005` send failed, `-32007` hook auth / recovery blocked, `-32010` to `-32014` OTP family, `-32000` generic.
+If the user cares about numbers: `-32602` bad parameters, `-32002` wallet/account not ready, `-32005` send / payment failed (includes x402 `payment_failed` with `facilitatorResponse` and `suggestion` in `error.data`), `-32007` hook auth / recovery blocked, `-32010` to `-32014` OTP family, `-32000` generic.

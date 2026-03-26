@@ -4,6 +4,47 @@ import type { AppContext } from '../context';
 import { X402Service } from '../services/x402';
 import { checkRecoveryBlocked } from '../utils/recoveryGuard';
 
+/**
+ * Attempt to parse a string as JSON so it embeds as a structured object
+ * in the output rather than a double-serialized string.
+ * Returns the original string on failure (non-JSON bodies, truncated responses, etc.).
+ */
+function tryParseResponseBody(body: string | undefined): unknown {
+  if (body === undefined) return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+/**
+ * Map known x402 facilitator error strings to actionable suggestions.
+ *
+ * Facilitator error codes are not standardized, so we match on substrings
+ * observed across common implementations (Coinbase x402, run402, agentmail).
+ */
+function paymentFailureSuggestion(reason: string): string {
+  const r = reason.toLowerCase();
+
+  if (r.includes('insufficient_balance') || r.includes('insufficient balance'))
+    return 'Check token balance with `query balance --token <asset>`. Fund the account if needed.';
+
+  if (r.includes('invalid_signature') || r.includes('signature'))
+    return 'EIP-3009 signature rejected. Verify the account is deployed (`account info`) and the EIP-712 domain matches (check `extra.name`/`extra.version` in the payment requirement).';
+
+  if (r.includes('expired') || r.includes('timeout'))
+    return 'Payment authorization expired before the facilitator could settle. Retry with a shorter network latency or check system clock.';
+
+  if (r.includes('simulation_failed') || r.includes('transaction_simulation'))
+    return 'On-chain simulation reverted. Likely causes: insufficient token balance, undeployed account, or invalid delegation. Run `account info` and `query balance --token <asset>`.';
+
+  if (r.includes('payment required'))
+    return 'Facilitator returned a generic rejection. Run with `--verbose` to inspect the full EIP-3009 signing flow and facilitator response headers.';
+
+  return 'Run with `--verbose` for detailed diagnostics.';
+}
+
 interface RequestOptions {
   method?: string;
   header?: string[];
@@ -119,13 +160,31 @@ export function registerRequestCommand(program: Command, ctx: AppContext): void 
           return;
         }
 
+        if (result.type === 'payment_failed') {
+          const reason = result.payment?.failureReason ?? 'Payment failed';
+          outputError(-32005, reason, {
+            method: result.payment?.method,
+            initialStatus: result.initial.status,
+            finalStatus: result.final?.status,
+            payment: {
+              amount: result.payment?.requirement.amount,
+              asset: result.payment?.requirement.asset,
+              payTo: result.payment?.requirement.payTo,
+              network: result.payment?.requirement.network,
+            },
+            facilitatorResponse: tryParseResponseBody(result.final?.body),
+            suggestion: paymentFailureSuggestion(reason),
+          });
+          return;
+        }
+
         if (result.type === 'paid') {
           outputResult({
             type: 'paid',
             method: result.payment?.method,
             initialStatus: result.initial.status,
             finalStatus: result.final?.status,
-            responseBody: result.final?.body,
+            responseBody: tryParseResponseBody(result.final?.body),
             payment: {
               amount: result.payment?.requirement.amount,
               asset: result.payment?.requirement.asset,
@@ -142,7 +201,7 @@ export function registerRequestCommand(program: Command, ctx: AppContext): void 
         outputResult({
           type: 'plain',
           status: result.final?.status,
-          responseBody: result.final?.body,
+          responseBody: tryParseResponseBody(result.final?.body),
         });
       } catch (err) {
         outputError(-32000, (err as Error).message);

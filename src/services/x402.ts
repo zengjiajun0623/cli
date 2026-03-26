@@ -36,7 +36,7 @@ export interface HttpRequestOptions {
 }
 
 export interface HttpRequestResult {
-  type: 'plain' | 'preview' | 'paid';
+  type: 'plain' | 'preview' | 'paid' | 'payment_failed';
   initial: {
     status: number;
     body: string;
@@ -56,6 +56,7 @@ export interface HttpRequestResult {
       validBefore: string;
       nonce: Hex;
     };
+    failureReason?: string;
   };
 }
 
@@ -184,8 +185,10 @@ export class X402Service {
         this.logDebug('Settlement', { header: settlementHeader, settlement });
       }
 
+      const paid = this.isPaymentSuccessful(finalResponse.status, settlement);
+
       return {
-        type: 'paid',
+        type: paid ? 'paid' : 'payment_failed',
         initial: {
           status: initialResponse.status,
           body: initialBody,
@@ -200,6 +203,7 @@ export class X402Service {
           method: transferMethod,
           delegationId: delegation.id,
           settlement,
+          ...(!paid ? { failureReason: this.extractFailureReason(finalBody) } : {}),
         },
       };
     }
@@ -223,8 +227,10 @@ export class X402Service {
       const settlementHeader = finalResponse.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
       const settlement = settlementHeader ? this.decodeSettlement(settlementHeader) : null;
 
+      const paid = this.isPaymentSuccessful(finalResponse.status, settlement);
+
       return {
-        type: 'paid',
+        type: paid ? 'paid' : 'payment_failed',
         initial: {
           status: initialResponse.status,
           body: initialBody,
@@ -239,6 +245,7 @@ export class X402Service {
           method: transferMethod,
           settlement,
           authorization,
+          ...(!paid ? { failureReason: this.extractFailureReason(finalBody) } : {}),
         },
       };
     }
@@ -518,6 +525,32 @@ export class X402Service {
       });
     }
     return packed;
+  }
+
+  /**
+   * Determine whether the facilitator accepted the payment.
+   *
+   * A successful payment means the facilitator returned a non-402 status
+   * (typically 200) AND provided a settlement response. If either condition
+   * fails, the payment was rejected.
+   */
+  private isPaymentSuccessful(finalStatus: number, settlement: SettlementResponse | null): boolean {
+    if (finalStatus === 402) return false;
+    if (settlement && settlement.success === false) return false;
+    return true;
+  }
+
+  /**
+   * Extract a human-readable failure reason from the facilitator's error response.
+   */
+  private extractFailureReason(body: string): string {
+    try {
+      const parsed = JSON.parse(body) as { error?: string };
+      if (parsed.error) return parsed.error;
+    } catch {
+      // body is not JSON
+    }
+    return 'Payment rejected by facilitator';
   }
 
   private safeNormalizeNetwork(network: string): string {
