@@ -5,7 +5,7 @@ description: >
   social recovery. Simulate before send, get user approval on risky steps, and explain outcomes in a
   fixed, user-friendly format (no raw JSON unless asked). Deferred OTP completed with otp submit.
   Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Node >= 24.
-version: 0.7.4
+version: 0.8.0
 homepage: https://elytro.com
 metadata:
   openclaw:
