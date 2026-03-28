@@ -123,6 +123,41 @@ Other management: `delegation list`, `delegation show <id>`.
 
 Full workflow and troubleshooting: [docs/x402.md](docs/x402.md)
 
+## Token lookup
+
+Look up token addresses before using them in swap or transfer commands. Never guess a token address.
+
+```bash
+elytro token                           # all tokens on the current account's chain
+elytro token --search usdc             # search by symbol or name
+elytro token --chain 8453              # tokens on a specific chain
+```
+
+## Swap / Bridge
+
+Swap or bridge tokens across chains via LiFi. Always look up the token address with `elytro token` first, then quote, then send after user approval.
+
+```bash
+# Same-chain swap (from-chain defaults to account chain, to-chain defaults to from-chain)
+elytro swap quote --from-token 0x0000000000000000000000000000000000000000 \
+  --to-token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --amount 100000000000000
+
+# Cross-chain bridge (specify --to-chain for a different destination)
+elytro swap quote --to-chain 8453 \
+  --from-token 0x0000000000000000000000000000000000000000 \
+  --to-token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --amount 100000000000000
+
+# Execute (requires user approval, re-quotes internally)
+elytro swap send --to-chain 8453 \
+  --from-token 0x0000000000000000000000000000000000000000 \
+  --to-token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --amount 100000000000000
+```
+
+Token list source: [Uniswap default-token-list](https://github.com/Uniswap/default-token-list). Covers mainnet chains (1, 10, 42161, 8453). `--from-chain` defaults to the current account's chain. `--to-chain` defaults to `--from-chain` (same-chain swap). Use `0x0000000000000000000000000000000000000000` for native ETH. Amounts are in atomic units (wei). The `--slippage` option takes a percent value (e.g. `0.5` for 0.5%). `swap send` always fetches a fresh quote internally to avoid stale pricing.
+
 ## Social recovery
 
 Social recovery lets users designate guardians who can collectively restore wallet access. The CLI handles guardian management, backup, and recovery initiation. Guardian signing and on-chain execution happen in the external Recovery App at `https://recovery.elytro.com/`.

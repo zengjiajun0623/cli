@@ -71,6 +71,32 @@ CLI errors include `error.message`, `error.data.hint`, and `error.data.suggestio
 | `services`      | `Found <n> service(s).` One line per service: id, name, category. Mention `services <id>` for details.                   |
 | `services <id>` | Service name, description, endpoint list with pricing. Include example `request` command for the most relevant endpoint. |
 
+### Token
+
+| Run                                                 | Tell the user                                                              |
+| --------------------------------------------------- | -------------------------------------------------------------------------- |
+| `token [--chain <id>] [--search <query>] [account]` | `Found <n> token(s).` One line per token: symbol, name, address, decimals. |
+
+Covers mainnet chains (1, 10, 42161, 8453). Testnets have no token list. `--chain` defaults to the current account's chain.
+
+### Swap / Bridge
+
+| Run                                                                                                                                                            | Tell the user                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `swap quote [--from-chain <id>] [--to-chain <id>] --from-token <addr> --to-token <addr> --amount <wei> [--slippage <pct>] [account]`                           | `Preview: swap <amount> <fromSymbol> on <fromChain> for ~<estAmount> <toSymbol> on <toChain>. Tool: <name>. Fees: <gasCostUSD>. ETA: <seconds>s.` |
+| `swap send [--from-chain <id>] [--to-chain <id>] --from-token <addr> --to-token <addr> --amount <wei> [--slippage <pct>] [--no-sponsor] [--no-hook] [account]` | Use `Done:` or `Action needed:` template. Never send without prior quote + user OK.                                                               |
+
+`--from-chain` defaults to the current account's chain. `--to-chain` defaults to `--from-chain` (same-chain swap). `--from-token 0x0000000000000000000000000000000000000000` = native ETH. `--amount` is in atomic units (wei). `--slippage` is in percent (e.g. `0.5` = 0.5%).
+
+**Swap workflow for agents:**
+
+1. User says "swap ETH to USDC" -> `token --search usdc` to resolve the address. Never guess a token address.
+2. `swap quote` to preview route, output, and fees.
+3. Present quote to user: from/to amounts, tool name, estimated time, fees.
+4. Wait for explicit user approval.
+5. Execute with `swap send` (re-quotes automatically for fresh pricing).
+6. If OTP pending, follow the standard OTP flow.
+
 ### x402 / Delegations
 
 | Run                                                                                                             | Tell the user                                                                                     |
@@ -109,7 +135,7 @@ CLI errors include `error.message`, `error.data.hint`, and `error.data.suggestio
 
 Say what you will run, wait for explicit yes, then execute.
 
-**Money and deploy:** `tx send`, `account activate`, `request <url>` (non-dry-run)
+**Money and deploy:** `tx send`, `swap send`, `account activate`, `request <url>` (non-dry-run)
 **Delegation (on-chain):** `delegation revoke` (with `--calldata`)
 **Security:** `security 2fa install`, `security 2fa uninstall`, `security email bind|change`, `security spending-limit` (when setting)
 **Recovery (write):** `recovery contacts set`, `recovery contacts clear`, `recovery initiate`
