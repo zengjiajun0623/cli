@@ -37,7 +37,7 @@ const DEFAULT_GUARDIAN_HASH =
   '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex;
 
 /** Default guardian safe period: 48 hours. */
-const DEFAULT_GUARDIAN_SAFE_PERIOD = 30; // //172800;
+const DEFAULT_GUARDIAN_SAFE_PERIOD = 172800;
 
 /**
  * Contract addresses per entrypoint version.
