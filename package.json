@@ -1,6 +1,6 @@
 {
   "name": "@elytro/cli",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Elytro ERC-4337 Smart Account Wallet CLI",
   "type": "module",
   "bin": {
@@ -12,10 +12,10 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "node --env-file-if-exists=.env.development --import tsx/esm src/index.ts",
+    "dev": "ENV_FILE=.env.development node --import ./scripts/load-env.mjs --import tsx/esm src/index.ts",
     "build": "tsup",
     "prepublishOnly": "bun run build",
-    "test": "node --env-file-if-exists=.env.test --import tsx/esm test/smoke.ts",
+    "test": "ENV_FILE=.env.test node --import ./scripts/load-env.mjs --import tsx/esm test/smoke.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -67,6 +67,6 @@
     "*.{ts,js,json,md}": "prettier --write"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=18.0.0"
   }
 }

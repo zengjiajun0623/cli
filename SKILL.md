@@ -4,7 +4,7 @@ description: >
   Elytro smart-account wallet CLI for agents: multi-chain ERC-4337, 2FA email OTP, spending limits,
   social recovery. Simulate before send, get user approval on risky steps, and explain outcomes in a
   fixed, user-friendly format (no raw JSON unless asked). Deferred OTP completed with otp submit.
-  Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Requires Node 24 or newer.
+  Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Requires Node 18 or newer.
 metadata:
   openclaw:
     version: 0.8.0
@@ -12,7 +12,7 @@ metadata:
     requires:
       bins:
         - elytro
-      node: '>=24.0.0'
+      node: '>=18.0.0'
     emoji: '🔐'
     homepage: https://github.com/Elytro-eth/skills
     os: ['macos', 'windows', 'linux']
@@ -26,7 +26,7 @@ metadata:
 
 # Elytro CLI -- Agent Skill
 
-**Install:** `npm install -g @elytro/cli` (Node >= 24)
+**Install:** `npm install -g @elytro/cli` (Node >= 18)
 
 **Command reference and consent list:** [references/commands.md](references/commands.md)
 

@@ -28,11 +28,12 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
     .argument('[account]', 'Account alias or address (default: current)')
     .option('--token <address>', 'ERC-20 token contract address')
     .action(async (target?: string, opts?: { token?: string }) => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         const { accountInfo, chainConfig } = resolveAccountAndChain(ctx, target);
         ctx.walletClient.initForChain(chainConfig);
 
-        const spinner = ora('Querying balance...').start();
+        spinner = ora('Querying balance...').start();
 
         if (opts?.token) {
           // ERC-20 balance
@@ -71,6 +72,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
           });
         }
       } catch (err) {
+        spinner?.stop();
         outputError(-32000, sanitizeErrorMessage((err as Error).message));
       }
     });
@@ -82,11 +84,12 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
     .description('List all ERC-20 token holdings')
     .argument('[account]', 'Account alias or address (default: current)')
     .action(async (target?: string) => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         const { accountInfo, chainConfig } = resolveAccountAndChain(ctx, target);
         ctx.walletClient.initForChain(chainConfig);
 
-        const spinner = ora('Fetching token balances...').start();
+        spinner = ora('Fetching token balances...').start();
 
         // Step 1: Get all token addresses with non-zero balances
         const rawBalances = await ctx.walletClient.getTokenBalances(accountInfo.address);
@@ -127,7 +130,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
                 rawBalance: balance,
               };
             }
-          })
+          }),
         );
 
         spinner.stop();
@@ -145,6 +148,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
           total: tokens.length,
         });
       } catch (err) {
+        spinner?.stop();
         outputError(-32000, sanitizeErrorMessage((err as Error).message));
       }
     });
@@ -156,11 +160,16 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
     .description('Query transaction status by hash')
     .argument('<hash>', 'Transaction hash (0x...)')
     .action(async (hash: string) => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         if (!hash || !isHex66(hash)) {
-          outputError(-32602, 'Invalid transaction hash. Must be a 66-character hex string (0x + 64 hex chars).', {
-            hash,
-          });
+          outputError(
+            -32602,
+            'Invalid transaction hash. Must be a 66-character hex string (0x + 64 hex chars).',
+            {
+              hash,
+            },
+          );
           return;
         }
 
@@ -168,7 +177,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
         const chainConfig = resolveCurrentChain(ctx);
         ctx.walletClient.initForChain(chainConfig);
 
-        const spinner = ora('Querying transaction...').start();
+        spinner = ora('Querying transaction...').start();
         const receipt = await ctx.walletClient.getTransactionReceipt(hash as `0x${string}`);
 
         if (!receipt) {
@@ -192,6 +201,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
           chain: chainConfig.name,
         });
       } catch (err) {
+        spinner?.stop();
         outputError(-32000, sanitizeErrorMessage((err as Error).message));
       }
     });
@@ -202,11 +212,12 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
     .command('chain')
     .description('Show current chain information')
     .action(async () => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         const chainConfig = resolveCurrentChain(ctx);
         ctx.walletClient.initForChain(chainConfig);
 
-        const spinner = ora('Fetching chain data...').start();
+        spinner = ora('Fetching chain data...').start();
 
         const [blockNumber, gasPrice] = await Promise.all([
           ctx.walletClient.getBlockNumber(),
@@ -226,6 +237,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
           gasPrice: `${gasPrice.toString()} wei (${formatEther(gasPrice * 21000n)} ETH per basic tx)`,
         });
       } catch (err) {
+        spinner?.stop();
         outputError(-32000, sanitizeErrorMessage((err as Error).message));
       }
     });
@@ -237,6 +249,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
     .description('Inspect any on-chain address')
     .argument('<address>', 'Address to inspect (0x...)')
     .action(async (addr: string) => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         if (!isAddress(addr)) {
           outputError(-32602, 'Invalid address.', { address: addr });
@@ -246,7 +259,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
         const chainConfig = resolveCurrentChain(ctx);
         ctx.walletClient.initForChain(chainConfig);
 
-        const spinner = ora('Querying address...').start();
+        spinner = ora('Querying address...').start();
 
         const [{ ether: balance }, code] = await Promise.all([
           ctx.walletClient.getBalance(addr as Address),
@@ -266,6 +279,7 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
           ...(isContract ? { codeSize: `${codeSize} bytes` } : {}),
         });
       } catch (err) {
+        spinner?.stop();
         outputError(-32000, sanitizeErrorMessage((err as Error).message));
       }
     });
@@ -275,9 +289,10 @@ export function registerQueryCommand(program: Command, ctx: AppContext): void {
 
 function resolveAccountAndChain(
   ctx: AppContext,
-  target?: string
+  target?: string,
 ): { accountInfo: { alias: string; address: Address; chainId: number }; chainConfig: ChainConfig } {
-  const identifier = target ?? ctx.account.currentAccount?.alias ?? ctx.account.currentAccount?.address;
+  const identifier =
+    target ?? ctx.account.currentAccount?.alias ?? ctx.account.currentAccount?.address;
   if (!identifier) {
     throw new Error('No account selected. Specify an alias/address or create an account first.');
   }
@@ -320,4 +335,3 @@ function resolveCurrentChain(ctx: AppContext): ChainConfig {
 function isHex66(s: string): boolean {
   return /^0x[0-9a-fA-F]{64}$/.test(s);
 }
-

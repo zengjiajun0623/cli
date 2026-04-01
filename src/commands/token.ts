@@ -40,6 +40,7 @@ export function registerTokenCommand(program: Command, ctx: AppContext): void {
           search?: string;
         },
       ) => {
+        let spinner: ReturnType<typeof ora> | undefined;
         try {
           let chainId: number;
 
@@ -73,7 +74,7 @@ export function registerTokenCommand(program: Command, ctx: AppContext): void {
             return;
           }
 
-          const spinner = ora('Fetching token list...').start();
+          spinner = ora('Fetching token list...').start();
 
           const tokens = opts?.search
             ? await tokenService.search(chainId, opts.search)
@@ -93,6 +94,7 @@ export function registerTokenCommand(program: Command, ctx: AppContext): void {
             })),
           });
         } catch (err) {
+          spinner?.stop();
           outputError(ERR_INTERNAL, (err as Error).message ?? String(err));
         }
       },

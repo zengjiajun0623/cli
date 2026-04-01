@@ -488,6 +488,10 @@ export class RecoveryService {
       return;
     }
 
+    // Read local recovery record to get the correct chainId before it's cleared
+    const localRecord = await this.getLocalRecoveryRecord();
+    const chainId = localRecord?.chainId ?? this.chain.currentChain.id;
+
     // Try to register the recovered wallet as a local account
     const existing = this.account.resolveAccount(statusResult.walletAddress);
     if (!existing) {
@@ -496,7 +500,7 @@ export class RecoveryService {
         await this.account.importAccounts([
           {
             address: statusResult.walletAddress,
-            chainId: this.chain.currentChain.id,
+            chainId,
             alias: `recovered-${statusResult.walletAddress.slice(2, 8).toLowerCase()}`,
             owner,
             index: 0,

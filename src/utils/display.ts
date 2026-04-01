@@ -59,7 +59,10 @@ export function txError(payload: TxErrorPayload): void {
   console.error(chalk.red(JSON.stringify(output, null, 2)));
 }
 
-export function table(rows: Record<string, string>[], columns: { key: string; label: string; width?: number }[]): void {
+export function table(
+  rows: Record<string, string>[],
+  columns: { key: string; label: string; width?: number }[],
+): void {
   // Header
   const header = columns.map((c) => c.label.padEnd(c.width ?? 20)).join('  ');
   console.log(chalk.bold(header));
@@ -127,7 +130,7 @@ export function outputResult(result: Record<string, unknown>): void {
  *
  * Error codes follow JSON-RPC convention (see TxErrorPayload jsdoc above).
  */
-export function outputError(code: number, message: string, data?: Record<string, unknown>): void {
+export function outputError(code: number, message: string, data?: Record<string, unknown>): never {
   txError({ code, message: sanitizeErrorMessage(message), data });
-  process.exitCode = 1;
+  process.exit(1);
 }

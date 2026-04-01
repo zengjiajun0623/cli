@@ -34,9 +34,10 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
     .command('list')
     .description('Query current on-chain guardian setup')
     .action(async () => {
+      let spinner: ReturnType<typeof ora> | undefined;
       try {
         const account = requireCurrentAccount(ctx);
-        const spinner = ora('Querying recovery contacts...').start();
+        spinner = ora('Querying recovery contacts...').start();
 
         const [contactsInfo, recoveryInfo] = await Promise.all([
           ctx.recovery.queryContacts(account.address),
@@ -75,6 +76,7 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
           delayPeriod: recoveryInfo ? Number(recoveryInfo.delayPeriod) : 0,
         });
       } catch (err) {
+        spinner?.stop();
         outputError(ERR_INTERNAL, (err as Error).message);
       }
     });
@@ -100,14 +102,6 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
           return;
         }
 
-        if (!account.isDeployed) {
-          outputError(
-            ERR_ACCOUNT_NOT_READY,
-            `Account "${account.alias}" is not deployed. Run \`elytro account activate\` first.`,
-          );
-          return;
-        }
-
         // Parse addresses
         const addresses = addressesArg.split(',').map((a) => a.trim()) as Address[];
         for (const addr of addresses) {
@@ -120,6 +114,21 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
         const threshold = opts.threshold as number;
         if (threshold < 1 || threshold > addresses.length) {
           outputError(ERR_INVALID_PARAMS, `Threshold must be between 1 and ${addresses.length}.`);
+          return;
+        }
+
+        // Initialize chain before on-chain checks
+        const chainConfig = resolveChainStrict(ctx, account.chainId);
+        await ctx.sdk.initForChain(chainConfig);
+        ctx.walletClient.initForChain(chainConfig);
+
+        // Verify deployment on-chain (local isDeployed flag can be stale)
+        const deployedOnChain = await ctx.walletClient.isContractDeployed(account.address);
+        if (!deployedOnChain) {
+          outputError(
+            ERR_ACCOUNT_NOT_READY,
+            `Account "${account.alias}" is not deployed on chain ${account.chainId}. Run \`elytro account activate\` first.`,
+          );
           return;
         }
 
@@ -141,11 +150,6 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
 
         // Generate transactions
         const txs = ctx.recovery.generateSetContactsTxs(addresses, threshold, !!opts.privacy);
-
-        // Build and send UserOp (reusing the standard tx flow)
-        const chainConfig = resolveChainStrict(ctx, account.chainId);
-        await ctx.sdk.initForChain(chainConfig);
-        ctx.walletClient.initForChain(chainConfig);
 
         spinner = ora('Building UserOperation...').start();
 
@@ -262,15 +266,21 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
           return;
         }
 
-        if (!account.isDeployed) {
-          outputError(ERR_ACCOUNT_NOT_READY, `Account "${account.alias}" is not deployed.`);
+        const chainConfig = resolveChainStrict(ctx, account.chainId);
+        await ctx.sdk.initForChain(chainConfig);
+        ctx.walletClient.initForChain(chainConfig);
+
+        // Verify deployment on-chain (local isDeployed flag can be stale)
+        const deployedOnChain = await ctx.walletClient.isContractDeployed(account.address);
+        if (!deployedOnChain) {
+          outputError(
+            ERR_ACCOUNT_NOT_READY,
+            `Account "${account.alias}" is not deployed on chain ${account.chainId}.`,
+          );
           return;
         }
 
         const txs = ctx.recovery.generateClearContactsTxs();
-        const chainConfig = resolveChainStrict(ctx, account.chainId);
-        await ctx.sdk.initForChain(chainConfig);
-        ctx.walletClient.initForChain(chainConfig);
 
         spinner = ora('Building UserOperation...').start();
 
@@ -467,10 +477,8 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
 
         outputResult({
           walletAddress: result.walletAddress,
-          newOwner: result.newOwner,
           chainId: result.chainId,
           recoveryId: result.recoveryId,
-          approveHash: result.approveHash,
           contacts: result.contacts,
           threshold: result.threshold,
           recoveryUrl: result.recoveryUrl,
@@ -582,7 +590,6 @@ export function registerRecoveryCommand(program: Command, ctx: AppContext): void
 
         outputResult({
           walletAddress: statusResult.walletAddress,
-          newOwner: statusResult.newOwner,
           status: statusResult.status,
           contacts: statusResult.contacts,
           signedCount: statusResult.signedCount,
@@ -632,31 +639,19 @@ function outputRecoveryBlocked(
   account: {
     alias: string;
     address: Address;
-    activeRecovery?: { status: string; newOwner: Address; recoveryId: string } | null;
+    activeRecovery?: { status: string; recoveryId: string } | null;
   },
   recoveryInfo?: typeof account.activeRecovery,
-): void {
-  const output = {
-    success: false,
-    error: {
-      code: -32007,
-      message: `Account ${account.alias} (${account.address}) is being recovered. Write operations are blocked.`,
+): never {
+  outputError(
+    -32007,
+    `Account ${account.alias} (${account.address}) is being recovered. Write operations are blocked.`,
+    {
+      ...(recoveryInfo && { recoveryStatus: recoveryInfo.status }),
+      suggestion:
+        'Run `elytro recovery status` to check progress, or `elytro account switch` to use a different account.',
     },
-    context: {
-      account: account.alias,
-      address: account.address,
-      ...(recoveryInfo && {
-        recoveryStatus: recoveryInfo.status,
-        newOwner: recoveryInfo.newOwner,
-      }),
-    },
-    suggestion: [
-      { action: 'recovery status', description: 'Check the latest recovery progress' },
-      { action: 'account switch <other-account>', description: 'Switch to a different account' },
-    ],
-  };
-  console.error(JSON.stringify(output, null, 2));
-  process.exitCode = 1;
+  );
 }
 
 /**

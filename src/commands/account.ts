@@ -193,16 +193,7 @@ export function registerAccountCommand(program: Command, ctx: AppContext): void 
       // Recovery guard
       if (checkRecoveryBlocked(accountInfo)) return;
 
-      // 2. Check if already deployed
-      if (accountInfo.isDeployed) {
-        outputResult({
-          alias: accountInfo.alias,
-          address: accountInfo.address,
-          status: 'already_deployed',
-        });
-        return;
-      }
-
+      // 2. Check if already deployed (verify on-chain, not just local flag)
       const chainConfig = ctx.chain.chains.find((c) => c.id === accountInfo.chainId);
       const chainName = chainConfig?.name ?? String(accountInfo.chainId);
 
@@ -214,6 +205,26 @@ export function registerAccountCommand(program: Command, ctx: AppContext): void 
       // Ensure SDK is initialized for the account's chain
       await ctx.sdk.initForChain(chainConfig);
       ctx.walletClient.initForChain(chainConfig);
+
+      const deployedOnChain = await ctx.walletClient.isContractDeployed(accountInfo.address);
+
+      if (deployedOnChain) {
+        // Sync local state if it was out of date
+        if (!accountInfo.isDeployed) {
+          await ctx.account.markDeployed(accountInfo.address, accountInfo.chainId);
+        }
+        outputResult({
+          alias: accountInfo.alias,
+          address: accountInfo.address,
+          status: 'already_deployed',
+        });
+        return;
+      }
+
+      // Local state says deployed but chain says otherwise -- fix the drift
+      if (accountInfo.isDeployed && !deployedOnChain) {
+        accountInfo.isDeployed = false;
+      }
 
       const spinner = ora(`Activating "${accountInfo.alias}" on ${chainName}...`).start();
 
