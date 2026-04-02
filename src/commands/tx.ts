@@ -5,7 +5,13 @@ import type { Address, Hex } from 'viem';
 import type { AppContext } from '../context';
 import type { ElytroUserOperation, AccountInfo, ChainConfig } from '../types';
 import { requestSponsorship, applySponsorToUserOp } from '../utils/sponsor';
-import { sanitizeErrorMessage, outputResult, outputError, maskApiKeys } from '../utils/display';
+import {
+  sanitizeErrorMessage,
+  outputResult,
+  outputError,
+  outputStderrJson,
+  maskApiKeys,
+} from '../utils/display';
 import { SecurityHookService, createSignMessageForAuth } from '../services/securityHook';
 import { savePendingOtpAndOutput } from '../services/pendingOtp';
 import { serializeUserOpForPending } from '../utils/userOpSerialization';
@@ -365,22 +371,16 @@ export function registerTxCommand(program: Command, ctx: AppContext): void {
           // ── Summary to stderr (agents: obtain user approval before running tx send — see references/commands.md)
           const estimatedGas =
             userOp.callGasLimit + userOp.verificationGasLimit + userOp.preVerificationGas;
-          console.error(
-            JSON.stringify(
-              {
-                summary: {
-                  txType: txTypeLabel(txType),
-                  from: accountInfo.alias,
-                  address: accountInfo.address,
-                  transactions: specs.map((s, i) => specToJson(s)),
-                  sponsored,
-                  estimatedGas: estimatedGas.toString(),
-                },
-              },
-              null,
-              2,
-            ),
-          );
+          outputStderrJson({
+            summary: {
+              txType: txTypeLabel(txType),
+              from: accountInfo.alias,
+              address: accountInfo.address,
+              transactions: specs.map((s, i) => specToJson(s)),
+              sponsored,
+              estimatedGas: estimatedGas.toString(),
+            },
+          });
 
           // ── Sign + Send + Wait ──
           const spinner = ora('Signing UserOperation...').start();

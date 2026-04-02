@@ -1,7 +1,14 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import chalk from 'chalk';
-import { outputError, outputResult } from '../utils/display';
+import {
+  commandText,
+  highlight,
+  linkText,
+  muted,
+  outputError,
+  outputResult,
+} from '../utils/display';
 import { SERVICE_REGISTRY_API } from '../constants/serviceRegistry';
 
 // ─── Safety helpers ──────────────────────────────────────────────────
@@ -102,17 +109,34 @@ function truncate(str: string, max: number): string {
 function formatPricing(pricing: Pricing): string {
   switch (pricing.type) {
     case 'free':
-      return 'free';
+      return chalk.green('free');
     case 'fixed': {
       const amount = pricing.amount ? sanitize(pricing.amount) : undefined;
       const per = sanitize(pricing.per ?? 'charge');
       if (!amount) {
-        return `fixed price per ${per}`;
+        return chalk.yellow(`fixed price per ${per}`);
       }
-      return `$${amount} ${per}`;
+      return chalk.yellow(`$${amount} ${per}`);
     }
     case 'dynamic':
-      return sanitize(pricing.description ?? 'dynamic charge');
+      return chalk.magenta(sanitize(pricing.description ?? 'dynamic charge'));
+  }
+}
+
+function formatMethod(method: string): string {
+  const padded = method.padStart(METHOD_COL);
+  switch (method.toUpperCase()) {
+    case 'GET':
+      return chalk.green(padded);
+    case 'POST':
+      return chalk.cyan(padded);
+    case 'PUT':
+    case 'PATCH':
+      return chalk.yellow(padded);
+    case 'DELETE':
+      return chalk.red(padded);
+    default:
+      return chalk.blue(padded);
   }
 }
 
@@ -136,19 +160,21 @@ function printList(services: Service[]): void {
 
   for (const svc of services) {
     const row =
-      sanitize(svc.id).padEnd(COL.id) +
+      chalk.cyan(sanitize(svc.id).padEnd(COL.id)) +
       '  ' +
-      truncate(sanitize(svc.name), COL.name).padEnd(COL.name) +
+      chalk.bold(truncate(sanitize(svc.name), COL.name).padEnd(COL.name)) +
       '  ' +
-      truncate(svc.categories.map(sanitize).join(', '), COL.category).padEnd(COL.category) +
+      chalk.yellow(
+        truncate(svc.categories.map(sanitize).join(', '), COL.category).padEnd(COL.category),
+      ) +
       '  ' +
-      sanitize(svc.serviceUrl);
+      linkText(sanitize(svc.serviceUrl));
     console.log('  ' + row);
   }
 
   console.log();
   console.log(
-    chalk.gray(`  ${services.length} service(s). Run 'elytro services <id>' for details.`),
+    `  ${muted(`${services.length} service(s). Run`)} ${commandText('elytro services <id>')} ${muted('for details.')}`,
   );
   console.log();
 }
@@ -160,7 +186,7 @@ const METHOD_COL = 7; // right-aligns up to "DELETE" (6 chars)
 const PATH_COL = 42; // path column width before pricing label
 
 function field(key: string, value: string): void {
-  console.log(`  ${chalk.gray(key.padStart(LABEL_WIDTH) + ':')} ${value}`);
+  console.log(`  ${muted(key.padStart(LABEL_WIDTH) + ':')} ${value}`);
 }
 
 function buildExample(method: string, serviceUrl: string, path: string): string {
@@ -180,44 +206,46 @@ function printDetail(svc: ServiceDetail): void {
   const tags = svc.tags.map(sanitize).join(', ');
 
   console.log();
-  console.log(chalk.bold(name));
-  console.log(chalk.gray('─'.repeat(name.length + 2)));
+  console.log(highlight(name));
+  console.log(muted('─'.repeat(name.length + 2)));
   console.log(description);
   console.log();
 
-  field('ID', id);
-  field('Categories', categories);
-  field('Service URL', serviceUrl);
+  field('ID', chalk.cyan(id));
+  field('Categories', chalk.yellow(categories));
+  field('Service URL', linkText(serviceUrl));
   field('Tags', tags);
 
   const docs = Array.isArray(svc.docs) ? svc.docs : [];
   if (docs.length > 0) {
     console.log();
-    console.log(chalk.bold('Docs:'));
+    console.log(highlight('Docs:'));
     for (const url of docs) {
-      console.log(`  ${sanitize(url)}`);
+      console.log(`  ${linkText(sanitize(url))}`);
     }
   }
 
   const endpoints = Array.isArray(svc.endpoints) ? svc.endpoints : [];
   if (endpoints.length > 0) {
     console.log();
-    console.log(chalk.bold('Endpoints:'));
+    console.log(highlight('Endpoints:'));
     const indent = '  ' + ' '.repeat(METHOD_COL + 1);
     for (const ep of endpoints) {
       const method = sanitize(ep.method);
       const path = sanitize(ep.path);
       const epDesc = sanitize(ep.description);
       console.log(
-        `  ${chalk.cyan(method.padStart(METHOD_COL))} ${path.padEnd(PATH_COL)}  ${formatPricing(ep.pricing)}`,
+        `  ${formatMethod(method)} ${chalk.white(path.padEnd(PATH_COL))}  ${formatPricing(ep.pricing)}`,
       );
-      console.log(`${indent}${chalk.gray(epDesc)}`);
+      console.log(`${indent}${muted(epDesc)}`);
       if (ep.note) {
-        console.log(`${indent}${chalk.gray(sanitize(ep.note))}`);
+        console.log(`${indent}${muted(sanitize(ep.note))}`);
       }
-      console.log(`${indent}${chalk.gray('example:')} ${buildExample(method, serviceUrl, path)}`);
+      console.log(
+        `${indent}${muted('example:')} ${commandText(buildExample(method, serviceUrl, path))}`,
+      );
       if (ep.docs) {
-        console.log(`${indent}${chalk.gray('docs:')}    ${sanitize(ep.docs)}`);
+        console.log(`${indent}${muted('docs:')}    ${linkText(sanitize(ep.docs))}`);
       }
     }
   }

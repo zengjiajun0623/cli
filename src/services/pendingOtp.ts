@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { StorageAdapter } from '../types';
 import type { PendingOtpState, PendingOtpsStore } from '../types';
-import { outputResult } from '../utils/display';
+import { accent, commandText, muted, outputResult, printCallout } from '../utils/display';
 
 const PENDING_OTPS_KEY = 'pending-otps';
 
@@ -26,7 +26,7 @@ export async function loadPendingOtps(store: StorageAdapter): Promise<PendingOtp
 export async function savePendingOtp(
   store: StorageAdapter,
   id: string,
-  state: PendingOtpState
+  state: PendingOtpState,
 ): Promise<void> {
   const all = await loadPendingOtps(store);
   all[id] = state;
@@ -49,7 +49,7 @@ export async function removePendingOtp(store: StorageAdapter, id: string): Promi
  */
 export async function clearPendingOtps(
   store: StorageAdapter,
-  options?: { account?: string; id?: string }
+  options?: { account?: string; id?: string },
 ): Promise<void> {
   const all = await loadPendingOtps(store);
   if (options?.id) {
@@ -76,7 +76,7 @@ export async function clearPendingOtps(
  */
 export async function savePendingOtpAndOutput(
   store: StorageAdapter,
-  state: PendingOtpState
+  state: PendingOtpState,
 ): Promise<void> {
   await savePendingOtp(store, state.id, state);
   const submitCommand = `elytro otp submit ${state.id} <6-digit-code>`;
@@ -89,9 +89,12 @@ export async function savePendingOtpAndOutput(
       submitCommand,
     },
   });
-  console.error(
-    `OTP sent to ${state.maskedEmail ?? 'your email'}.${state.otpExpiresAt ? ` Expires at ${state.otpExpiresAt}.` : ''}\nTo complete, run:\n  ${submitCommand}`
-  );
+  const lines = [`OTP sent to ${accent(state.maskedEmail ?? 'your email')}.`];
+  if (state.otpExpiresAt) {
+    lines.push(`${muted('Expires at:')} ${state.otpExpiresAt}`);
+  }
+  lines.push(`${muted('Run:')} ${commandText(submitCommand)}`);
+  printCallout('Action needed', lines, 'warning');
 }
 
 /**
@@ -99,7 +102,7 @@ export async function savePendingOtpAndOutput(
  */
 export async function getPendingOtp(
   store: StorageAdapter,
-  id: string
+  id: string,
 ): Promise<PendingOtpState | null> {
   const all = await loadPendingOtps(store);
   return all[id] ?? null;

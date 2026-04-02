@@ -9,6 +9,30 @@ export function heading(text: string): void {
   console.log(chalk.bold.cyan(`\n${text}\n`));
 }
 
+function writeJson(stream: NodeJS.WriteStream, value: unknown): void {
+  stream.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function muted(text: string): string {
+  return chalk.gray(text);
+}
+
+export function accent(text: string): string {
+  return chalk.cyan(text);
+}
+
+export function highlight(text: string): string {
+  return chalk.bold(text);
+}
+
+export function linkText(text: string): string {
+  return chalk.underline.cyan(text);
+}
+
+export function commandText(text: string): string {
+  return chalk.bold.cyan(text);
+}
+
 export function info(label: string, value: string): void {
   console.log(`  ${chalk.gray(label + ':')} ${value}`);
 }
@@ -47,6 +71,10 @@ export interface TxErrorPayload {
   data?: Record<string, unknown>;
 }
 
+export function outputStderrJson(value: unknown): void {
+  writeJson(process.stderr, value);
+}
+
 export function txError(payload: TxErrorPayload): void {
   const output = {
     success: false,
@@ -56,7 +84,7 @@ export function txError(payload: TxErrorPayload): void {
       ...(payload.data && Object.keys(payload.data).length > 0 ? { data: payload.data } : {}),
     },
   };
-  console.error(chalk.red(JSON.stringify(output, null, 2)));
+  outputStderrJson(output);
 }
 
 export function table(
@@ -109,6 +137,23 @@ export function sanitizeErrorMessage(message: string): string {
   return message.replace(/https?:\/\/[^\s"']+/gi, (match) => maskApiKeys(match));
 }
 
+export function printCallout(
+  title: string,
+  lines: string[],
+  tone: 'info' | 'warning' | 'success' = 'info',
+  stream: 'stdout' | 'stderr' = 'stderr',
+): void {
+  const color = tone === 'warning' ? chalk.yellow : tone === 'success' ? chalk.green : chalk.cyan;
+  const writer = stream === 'stdout' ? console.log : console.error;
+
+  writer('');
+  writer(color.bold(title));
+  for (const line of lines) {
+    writer(`  ${line}`);
+  }
+  writer('');
+}
+
 // ─── Structured JSON Output (MCP / JSON-RPC convention) ─────────
 
 /**
@@ -120,7 +165,7 @@ export function sanitizeErrorMessage(message: string): string {
  * callers (MCP, scripts, OpenClaw) can parse results uniformly.
  */
 export function outputResult(result: Record<string, unknown>): void {
-  console.log(JSON.stringify({ success: true, result }, null, 2));
+  writeJson(process.stdout, { success: true, result });
 }
 
 /**

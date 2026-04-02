@@ -7,7 +7,12 @@ import type { ElytroUserOperation, AccountInfo, ChainConfig } from '../types';
 import { SwapService } from '../services/swap';
 import type { SwapQuote, SwapQuoteParams } from '../services/swap';
 import { requestSponsorship, applySponsorToUserOp } from '../utils/sponsor';
-import { outputResult, outputError, sanitizeErrorMessage } from '../utils/display';
+import {
+  outputResult,
+  outputError,
+  outputStderrJson,
+  sanitizeErrorMessage,
+} from '../utils/display';
 import { SecurityHookService, createSignMessageForAuth } from '../services/securityHook';
 import { savePendingOtpAndOutput } from '../services/pendingOtp';
 import { serializeUserOpForPending } from '../utils/userOpSerialization';
@@ -371,34 +376,28 @@ export function registerSwapCommand(program: Command, ctx: AppContext): void {
 
           spinner.stop();
 
-          console.error(
-            JSON.stringify(
-              {
-                summary: {
-                  type: 'swap',
-                  tool: quote.toolDetails.name,
-                  from: {
-                    chain: fromChain,
-                    token: quote.fromToken.symbol,
-                    amount: formatTokenAmount(quote.fromAmount, quote.fromToken.decimals),
-                  },
-                  to: {
-                    chain: toChain,
-                    token: quote.toToken.symbol,
-                    estimatedAmount: formatTokenAmount(quote.toAmount, quote.toToken.decimals),
-                    minimumAmount: formatTokenAmount(quote.toAmountMin, quote.toToken.decimals),
-                  },
-                  account: accountInfo.alias,
-                  address: accountInfo.address,
-                  router: txReq.to,
-                  sponsored,
-                  estimatedGas: estimatedGas.toString(),
-                },
+          outputStderrJson({
+            summary: {
+              type: 'swap',
+              tool: quote.toolDetails.name,
+              from: {
+                chain: fromChain,
+                token: quote.fromToken.symbol,
+                amount: formatTokenAmount(quote.fromAmount, quote.fromToken.decimals),
               },
-              null,
-              2,
-            ),
-          );
+              to: {
+                chain: toChain,
+                token: quote.toToken.symbol,
+                estimatedAmount: formatTokenAmount(quote.toAmount, quote.toToken.decimals),
+                minimumAmount: formatTokenAmount(quote.toAmountMin, quote.toToken.decimals),
+              },
+              account: accountInfo.alias,
+              address: accountInfo.address,
+              router: txReq.to,
+              sponsored,
+              estimatedGas: estimatedGas.toString(),
+            },
+          });
 
           // ── Step 6: Sign + Send + Wait ──
           const sendSpinner = ora('Signing UserOperation...').start();
