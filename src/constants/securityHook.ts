@@ -10,6 +10,7 @@ export const SECURITY_HOOK_ADDRESS_MAP: Record<number, Address> = {
   42161: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Arbitrum One
   11155111: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Sepolia
   11155420: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Optimism Sepolia
+  8453: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Base Mainnet
 };
 
 /**
