@@ -41,16 +41,16 @@ CLI errors include `error.message`, `error.data.hint`, and `error.data.suggestio
 
 ### Security / OTP / config
 
-| Run                                          | Tell the user                                             |
-| -------------------------------------------- | --------------------------------------------------------- |
-| `security status`                            | `Status:` hook state, email, spending limit.              |
-| `security 2fa install ...` / `uninstall ...` | `Done:` with plain-language result.                       |
-| `security email bind\|change <email>`        | Often returns OTP pending; use `Action needed:` template. |
-| `security spending-limit [usd]`              | View: `Status:`. Set: may return OTP pending.             |
-| `otp submit <id> <code>`                     | Agent runs this after user provides the code.             |
-| `otp list` / `otp cancel`                    | `Found <n> item(s).` / `Done:`.                           |
-| `config show\|set\|remove`                   | `Status:` for show, `Done:` for set/remove.               |
-| `update check` / `update`                    | `Status:` / `Done:`. No auto-update without user OK.      |
+| Run                                          | Tell the user                                                                                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `security status`                            | `Status:` hook state, email, spending limit.                                                                                                                                           |
+| `security 2fa install ...` / `uninstall ...` | `Done:` with plain-language result.                                                                                                                                                    |
+| `security email bind\|change <email>`        | Often returns OTP pending; use `Action needed:` template.                                                                                                                              |
+| `security spending-limit [usd]`              | View: `Status:`. Set: may return OTP pending. Set only when user explicitly wants to change the daily policy, not as a workaround for an OTP step up on a pending tx. See concepts.md. |
+| `otp submit <id> <code>`                     | Agent runs this after user provides the code.                                                                                                                                          |
+| `otp list` / `otp cancel`                    | `Found <n> item(s).` / `Done:`.                                                                                                                                                        |
+| `config show\|set\|remove`                   | `Status:` for show, `Done:` for set/remove.                                                                                                                                            |
+| `update check` / `update`                    | `Status:` / `Done:`. No auto-update without user OK.                                                                                                                                   |
 
 ### Recovery
 
@@ -137,7 +137,7 @@ Say what you will run, wait for explicit yes, then execute.
 
 **Money and deploy:** `tx send`, `swap send`, `account activate`, `request <url>` (non-dry-run)
 **Delegation (on-chain):** `delegation revoke` (with `--calldata`)
-**Security:** `security 2fa install`, `security 2fa uninstall`, `security email bind|change`, `security spending-limit` (when setting)
+**Security:** `security 2fa install`, `security 2fa uninstall`, `security email bind|change`, `security spending-limit` (only when the user explicitly asks to change their ongoing daily limit; NEVER run this to bypass an `otpPending` step up challenge on a tx that exceeded the limit, the correct response to that is to complete the OTP flow)
 **Recovery (write):** `recovery contacts set`, `recovery contacts clear`, `recovery initiate`
 **OTP / config:** `otp submit` (user provides code, agent executes), `otp cancel`, `config remove`, `update`
 

@@ -7,7 +7,7 @@ description: >
   Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Requires Node 18 or newer.
 metadata:
   openclaw:
-    version: 0.8.0
+    version: 0.8.3
     product-homepage: https://elytro.com
     requires:
       bins:
@@ -42,13 +42,23 @@ elytro account create --chain 11155420 --alias agent-primary
 elytro account activate agent-primary
 ```
 
-Recommended security setup after activation:
+Recommended security setup after activation. **Order matters.** `security 2fa install` must run first, because it deploys the on chain 2FA hook that `email bind` and `spending-limit` both write into. Without the hook installed, the later commands will either noop locally or succeed off chain while leaving the account completely unprotected on chain. Never skip step 1, and never reorder these.
 
 ```bash
+# 1. Install the on chain 2FA hook. Required first. On chain write, needs user approval.
+elytro security 2fa install
+
+# 2. Bind the email that will receive OTP codes. Will typically return otpPending; complete it.
 elytro security email bind user@example.com
+
+# 3. Set the step up threshold (USD). Above this amount, writes require OTP.
 elytro security spending-limit 100
+
+# 4. Confirm the hook is installed, the email is bound, and the limit is set.
 elytro security status
 ```
+
+If `security status` after step 4 shows the hook as not installed, stop and rerun `security 2fa install` before doing anything else. Any "security" change made without the hook in place is a false positive and the account is still wide open.
 
 ## Daily use
 
@@ -67,9 +77,23 @@ elytro tx send agent-primary --tx "to:0xRecipient,value:0.1"
 
 For batch calls, repeat `--tx` in the same order for both `simulate` and `send`.
 
+## Step up verification and spending limit
+
+`spending_limit` is a step up threshold, not a hard cap. When a write exceeds it, the backend does not reject the transaction. It pauses the transaction and asks for an email OTP, and then lets it through once the code is submitted. This is the intended path, not an error.
+
+Concretely: submit `tx send` (or `swap send`, `request`, etc.) normally. If the response contains an `otpPending` object, that is the step up challenge. Route it through the OTP flow below. The original write completes after `otp submit`.
+
+Do not preflight the tx amount against `spending_limit` yourself and refuse. The backend decides whether step up is needed, not the agent, and a stale local check will either block legitimate writes or skip verification that should have happened.
+
+Do not propose raising `spending_limit` as a way to avoid an OTP prompt. The OTP is the feature. Only touch `security spending-limit` when the user explicitly asks to change their ongoing daily policy, for example "raise my daily limit to 500 for today".
+
+Background on what these features mean and why they exist, including social recovery: [references/concepts.md](references/concepts.md).
+
 ## OTP flow
 
-Some commands pause for email verification and return an `otpPending` object. Only the user should provide the code. The agent runs `elytro otp submit <id> <6-digit-code>` on their behalf -- do not ask the user to run CLI commands for OTP. Use `elytro otp list` to see pending verifications.
+Some commands pause for email verification and return an `otpPending` object. This happens both for security changes (binding email, changing spending limit) and for ordinary writes that exceed the step up threshold. Treat all of these the same way.
+
+Only the user should provide the code. The agent runs `elytro otp submit <id> <6-digit-code>` on their behalf -- do not ask the user to run CLI commands for OTP. Use `elytro otp list` to see pending verifications.
 
 ## x402 payments (beta)
 
@@ -161,6 +185,8 @@ Token list source: [Uniswap default-token-list](https://github.com/Uniswap/defau
 ## Social recovery
 
 Social recovery lets users designate guardians who can collectively restore wallet access. The CLI handles guardian management, backup, and recovery initiation. Guardian signing and on-chain execution happen in the external Recovery App at `https://recovery.elytro.com/`.
+
+Before helping a user set up or initiate recovery, read the social recovery section of [references/concepts.md](references/concepts.md) for the full lifecycle (signature collection, countdown window, cancellation) and the phases reported by `recovery status`.
 
 ```bash
 # Set guardians (on-chain transaction, requires user approval)
