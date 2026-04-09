@@ -121,11 +121,11 @@ export class X402Service {
       : is402
         ? this.parsePaymentRequiredFromBody(initialBody)
         : (() => {
-            throw new Error(
-              `Server returned ${initialResponse.status} with a PAYMENT-REQUIRED header ` +
-                'but not a 402 status code. This is ambiguous — refusing to auto-pay.',
-            );
-          })();
+          throw new Error(
+            `Server returned ${initialResponse.status} with a PAYMENT-REQUIRED header ` +
+            'but not a 402 status code. This is ambiguous — refusing to auto-pay.',
+          );
+        })();
 
     if (options.verbose) {
       this.logDebug('PaymentRequired', {
@@ -209,43 +209,99 @@ export class X402Service {
     }
 
     if (transferMethod === EXACT_ASSET_TRANSFER_METHODS.EIP3009) {
-      const { payload, authorization } = await this.buildEip3009PaymentPayload(
-        paymentRequired,
-        requirement,
-        account,
-        options.verbose ?? false,
-      );
-      const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-      if (options.verbose) {
-        this.logDebug(
-          'PAYMENT-SIGNATURE (eip3009)',
-          JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
-        );
-      }
-      const finalResponse = await this.sendWithPayment(options, encodedPayload);
-      const finalBody = await finalResponse.text();
-      const settlementHeader = finalResponse.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
-      const settlement = settlementHeader ? this.decodeSettlement(settlementHeader) : null;
+      const maxRetries = 3;
+      const retryDelayMs = 5000;
+      let lastFailure:
+        | {
+          status: number;
+          body: string;
+          settlement: SettlementResponse | null;
+          authorization: { validAfter: string; validBefore: string; nonce: Hex };
+        }
+        | undefined;
 
-      const paid = this.isPaymentSuccessful(finalResponse.status, settlement);
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        const { payload, authorization } = await this.buildEip3009PaymentPayload(
+          paymentRequired,
+          requirement,
+          account,
+          options.verbose ?? false,
+        );
+        const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
+        if (options.verbose) {
+          this.logDebug(
+            'PAYMENT-SIGNATURE (eip3009)',
+            JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
+          );
+        }
+        const finalResponse = await this.sendWithPayment(options, encodedPayload);
+        const finalBody = await finalResponse.text();
+        const settlementHeader = finalResponse.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
+        const settlement = settlementHeader ? this.decodeSettlement(settlementHeader) : null;
+
+        const paid = this.isPaymentSuccessful(finalResponse.status, settlement);
+        if (paid) {
+          return {
+            type: 'paid',
+            initial: {
+              status: initialResponse.status,
+              body: initialBody,
+            },
+            final: {
+              status: finalResponse.status,
+              body: finalBody,
+            },
+            payment: {
+              requirement,
+              resource: paymentRequired.resource,
+              method: transferMethod,
+              settlement,
+              authorization,
+            },
+          };
+        }
+
+        lastFailure = {
+          status: finalResponse.status,
+          body: finalBody,
+          settlement,
+          authorization,
+        };
+
+        const canRetry =
+          attempt < maxRetries && this.isTransientFacilitatorFailure(finalResponse.status, finalBody);
+        if (!canRetry) break;
+
+        if (options.verbose) {
+          this.logDebug('Retry', {
+            reason: 'Transient facilitator rejection',
+            attempt: attempt + 1,
+            maxRetries,
+            delayMs: retryDelayMs,
+          });
+        }
+        await this.sleep(retryDelayMs);
+      }
 
       return {
-        type: paid ? 'paid' : 'payment_failed',
+        type: 'payment_failed',
         initial: {
           status: initialResponse.status,
           body: initialBody,
         },
-        final: {
-          status: finalResponse.status,
-          body: finalBody,
-        },
+        final: lastFailure
+          ? {
+            status: lastFailure.status,
+            body: lastFailure.body,
+          }
+          : undefined,
         payment: {
           requirement,
           resource: paymentRequired.resource,
           method: transferMethod,
-          settlement,
-          authorization,
-          ...(!paid ? { failureReason: this.extractFailureReason(finalBody) } : {}),
+          settlement: lastFailure?.settlement ?? null,
+          authorization: lastFailure?.authorization,
+          failureReason: this.extractFailureReason(lastFailure?.body ?? ''),
         },
       };
     }
@@ -553,6 +609,16 @@ export class X402Service {
     return 'Payment rejected by facilitator';
   }
 
+  private isTransientFacilitatorFailure(finalStatus: number, body: string): boolean {
+    if (finalStatus !== 402) return false;
+    const normalized = body.toLowerCase();
+    return (
+      normalized.includes('facilitator returned 400 bad request with no error') ||
+      normalized.includes('facilitator validation failed') ||
+      normalized.includes('invalid payment')
+    );
+  }
+
   private safeNormalizeNetwork(network: string): string {
     try {
       return normalizeNetworkIdentifier(network).toLowerCase();
@@ -579,5 +645,9 @@ export class X402Service {
       2,
     );
     console.error(`[x402] ${label}: ${safe}`);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
