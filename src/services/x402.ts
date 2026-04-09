@@ -206,8 +206,11 @@ export class X402Service {
     }
 
     if (transferMethod === EXACT_ASSET_TRANSFER_METHODS.EIP3009) {
-      const maxRetries = 3;
-      const retryBaseDelayMs = 1000;
+      const isIdempotentRequest = ['GET', 'HEAD', 'OPTIONS'].includes(options.method.toUpperCase());
+      const maxRetries = isIdempotentRequest ? 9 : 3;
+      const retryBaseDelayMs = 500;
+      const maxRetryDelayMs = 10_000;
+
       let lastFailure:
         | {
             status: number;
@@ -269,7 +272,7 @@ export class X402Service {
           this.isTransientFacilitatorFailure(finalResponse.status, finalBody);
         if (!canRetry) break;
 
-        const delayMs = retryBaseDelayMs * 2 ** attempt;
+        const delayMs = Math.min(retryBaseDelayMs * 2 ** attempt, maxRetryDelayMs);
         this.logVerbose(options.verbose ?? false, 'Retry', {
           reason: 'Transient facilitator rejection',
           attempt: attempt + 1,
@@ -615,17 +618,19 @@ export class X402Service {
   }
 
   private isTransientFacilitatorFailure(finalStatus: number, body: string): boolean {
-    // 5xx from the upstream server (facilitator unreachable / intermittent error).
-    if (finalStatus >= 500) return true;
-    // 402 whose body indicates the facilitator itself returned an empty 400 —
-    // a transient proxy-level issue, not a semantic payment rejection.
-    // Note: broad phrases like 'invalid payment' are intentionally excluded —
-    // they signal permanent rejections that retrying will not recover.
-    if (finalStatus === 402) {
-      const normalized = body.toLowerCase();
-      return normalized.includes('facilitator returned 400 bad request with no error');
-    }
-    return false;
+    if (finalStatus !== 402) return false;
+    const normalized = (body ?? '').trim().toLowerCase();
+    if (!normalized || normalized === '{}') return true;
+    return (
+      normalized.includes('facilitator returned 400 bad request with no error') ||
+      normalized.includes('facilitator validation failed') ||
+      normalized.includes('invalid payment') ||
+      normalized.includes('payment rejected by facilitator') ||
+      normalized.includes('payment required') ||
+      normalized.includes('bad request with no error') ||
+      normalized.includes('transaction_simulation') ||
+      normalized.includes('simulation_failed')
+    );
   }
 
   private safeNormalizeNetwork(network: string): string {
