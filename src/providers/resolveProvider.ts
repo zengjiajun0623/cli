@@ -36,10 +36,12 @@ export async function resolveProvider(): Promise<{
   }
 
   // ── Priority 2: Permission-guarded file fallback ──
-  // If the OS credential store is unavailable, silently fall back to the
-  // CLI-owned key file. This keeps the bootstrap path non-interactive even
-  // on headless or unsupported systems.
+  // If the OS credential store is unavailable, fall back to the CLI-owned key file.
   if (await fileProvider.available()) {
+    process.stderr.write(
+      '[elytro] Warning: OS credential store unavailable. Vault key will be stored in ' +
+        '~/.elytro/.vault-key (chmod 0600). This is less secure than the OS keychain.\n',
+    );
     return {
       initProvider: fileProvider,
       loadProvider: fileProvider,

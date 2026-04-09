@@ -94,8 +94,13 @@ export class SDKService {
     entrypointVersion: string = DEFAULT_VERSION,
   ): Promise<void> {
     this.chainConfig = chainConfig;
-    this.contractConfig =
-      ENTRYPOINT_CONFIGS[entrypointVersion] ?? ENTRYPOINT_CONFIGS[DEFAULT_VERSION];
+    const config = ENTRYPOINT_CONFIGS[entrypointVersion];
+    if (!config) {
+      throw new Error(
+        `Unknown entrypoint version "${entrypointVersion}". Valid options: ${Object.keys(ENTRYPOINT_CONFIGS).join(', ')}`,
+      );
+    }
+    this.contractConfig = config;
 
     // Import SDK and instantiate ElytroWallet
     const { ElytroWallet, Bundler } = await import('@elytro/sdk');
@@ -240,15 +245,18 @@ export class SDKService {
         maxFeePerGas: BigInt(fast.maxFeePerGas),
         maxPriorityFeePerGas: BigInt(fast.maxPriorityFeePerGas),
       };
-    } catch {
-      // Fallback: use standard eth_gasPrice
+    } catch (err) {
+      console.error(
+        '[sdk] pimlico_getUserOperationGasPrice failed, using eth_gasPrice fallback:',
+        (err as Error).message,
+      );
       const gasPrice = await createPublicClient({
-        transport: http(chainConfig.endpoint),
+        transport: http(chainConfig.bundler),
       }).getGasPrice();
 
       return {
         maxFeePerGas: gasPrice,
-        maxPriorityFeePerGas: gasPrice / 10n,
+        maxPriorityFeePerGas: 1n,
       };
     }
   }
@@ -462,8 +470,6 @@ export class SDKService {
     const maxAttempts = 30;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await sleep(delay);
-
       const result = await bundler.eth_getUserOperationReceipt(opHash);
 
       if (result.isErr()) {
@@ -481,8 +487,9 @@ export class SDKService {
         };
       }
 
-      // Increase delay with cap
+      // Increase delay with cap, then wait before next poll
       delay = Math.min(Math.floor(delay * 1.5), maxDelay);
+      await sleep(delay);
     }
 
     throw new Error(

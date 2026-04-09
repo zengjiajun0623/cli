@@ -28,7 +28,7 @@ export interface GraphQLRequestOptions {
 export class GraphQLClientError extends Error {
   constructor(
     message: string,
-    public readonly errors?: GraphQLError[]
+    public readonly errors?: GraphQLError[],
   ) {
     super(message);
     this.name = 'GraphQLClientError';
@@ -41,7 +41,7 @@ export class GraphQLClientError extends Error {
 export class GraphQLHttpError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
   ) {
     super(message);
     this.name = 'GraphQLHttpError';

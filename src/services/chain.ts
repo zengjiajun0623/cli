@@ -196,6 +196,10 @@ export class ChainService {
       await this.store.save(USER_KEYS_KEY, encrypted);
     } else {
       // Pre-init fallback: store plaintext (will be migrated on next unlockUserKeys)
+      process.stderr.write(
+        '[elytro] Warning: vault not initialized — API key stored in plaintext. ' +
+          'Run `elytro init` to encrypt it.\n',
+      );
       await this.store.save(USER_KEYS_KEY, this.userKeys);
     }
   }
@@ -207,5 +211,7 @@ export class ChainService {
 function isEncryptedData(obj: unknown): obj is EncryptedData {
   if (typeof obj !== 'object' || obj === null) return false;
   const o = obj as Record<string, unknown>;
-  return typeof o.data === 'string' && typeof o.iv === 'string' && typeof o.version === 'number';
+  return (
+    typeof o.data === 'string' && typeof o.iv === 'string' && (o.version === 1 || o.version === 2)
+  );
 }

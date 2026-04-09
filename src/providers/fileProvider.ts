@@ -109,9 +109,8 @@ export class FileProvider implements SecretProvider {
       }
       return new Uint8Array(key);
     } catch (err) {
-      const msg = (err as Error).message || '';
       // File doesn't exist = not initialized, return null
-      if (msg.includes('ENOENT')) return null;
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw err;
     }
   }

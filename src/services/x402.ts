@@ -80,11 +80,12 @@ export class X402Service {
 
   async performRequest(options: HttpRequestOptions): Promise<HttpRequestResult> {
     const init = this.buildRequestInit(options);
-    if (options.verbose) {
-      const initHeaders =
-        init.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : init.headers;
-      this.logDebug('Request', { url: options.url, method: init.method, headers: initHeaders });
-    }
+    this.logVerbose(options.verbose ?? false, 'Request', {
+      url: options.url,
+      method: init.method,
+      headers:
+        init.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : init.headers,
+    });
     const initialResponse = await fetch(options.url, init);
     const initialBody = await initialResponse.text();
 
@@ -93,13 +94,11 @@ export class X402Service {
 
     // Not a payment response: no 402 status AND no PAYMENT-REQUIRED header.
     if (!is402 && !paymentHeader) {
-      if (options.verbose) {
-        this.logDebug('Response', {
-          status: initialResponse.status,
-          headers: Object.fromEntries(initialResponse.headers.entries()),
-          body: initialBody,
-        });
-      }
+      this.logVerbose(options.verbose ?? false, 'Response', {
+        status: initialResponse.status,
+        headers: Object.fromEntries(initialResponse.headers.entries()),
+        body: initialBody,
+      });
       return {
         type: 'plain',
         initial: {
@@ -127,12 +126,10 @@ export class X402Service {
             );
           })();
 
-    if (options.verbose) {
-      this.logDebug('PaymentRequired', {
-        source: paymentHeader ? 'header' : 'body',
-        payload: paymentRequired,
-      });
-    }
+    this.logVerbose(options.verbose ?? false, 'PaymentRequired', {
+      source: paymentHeader ? 'header' : 'body',
+      payload: paymentRequired,
+    });
 
     const account = this.accountResolve(options.account);
     const requirement = this.selectRequirement(paymentRequired, account.chainId);
@@ -171,19 +168,19 @@ export class X402Service {
         delegation,
       );
       const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-      if (options.verbose) {
-        this.logDebug(
-          'PAYMENT-SIGNATURE (erc7710)',
-          JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
-        );
-      }
+      this.logVerbose(
+        options.verbose ?? false,
+        'PAYMENT-SIGNATURE (erc7710)',
+        JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
+      );
       const finalResponse = await this.sendWithPayment(options, encodedPayload);
       const finalBody = await finalResponse.text();
       const settlementHeader = finalResponse.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
       const settlement = settlementHeader ? this.decodeSettlement(settlementHeader) : null;
-      if (options.verbose) {
-        this.logDebug('Settlement', { header: settlementHeader, settlement });
-      }
+      this.logVerbose(options.verbose ?? false, 'Settlement', {
+        header: settlementHeader,
+        settlement,
+      });
 
       const paid = this.isPaymentSuccessful(finalResponse.status, settlement);
 
@@ -228,12 +225,11 @@ export class X402Service {
           options.verbose ?? false,
         );
         const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64');
-        if (options.verbose) {
-          this.logDebug(
-            'PAYMENT-SIGNATURE (eip3009)',
-            JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
-          );
-        }
+        this.logVerbose(
+          options.verbose ?? false,
+          'PAYMENT-SIGNATURE (eip3009)',
+          JSON.parse(Buffer.from(encodedPayload, 'base64').toString('utf-8')),
+        );
         const finalResponse = await this.sendWithPayment(options, encodedPayload);
         const finalBody = await finalResponse.text();
         const settlementHeader = finalResponse.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
@@ -274,14 +270,12 @@ export class X402Service {
         if (!canRetry) break;
 
         const delayMs = retryBaseDelayMs * 2 ** attempt;
-        if (options.verbose) {
-          this.logDebug('Retry', {
-            reason: 'Transient facilitator rejection',
-            attempt: attempt + 1,
-            maxRetries,
-            delayMs,
-          });
-        }
+        this.logVerbose(options.verbose ?? false, 'Retry', {
+          reason: 'Transient facilitator rejection',
+          attempt: attempt + 1,
+          maxRetries,
+          delayMs,
+        });
         await this.sleep(delayMs);
       }
 
@@ -496,9 +490,17 @@ export class X402Service {
 
     const chainId = Number(reference);
     const extra = (requirement.extra ?? {}) as Record<string, unknown>;
+    const domainName = typeof extra.name === 'string' ? extra.name : undefined;
+    const domainVersion = typeof extra.version === 'string' ? extra.version : undefined;
+    if (!domainName || !domainVersion) {
+      throw new Error(
+        'Payment requirement missing EIP-712 domain name/version in extra. ' +
+          'The server must supply extra.name and extra.version (e.g. "USD Coin" / "2" for USDC).',
+      );
+    }
     const domain = {
-      name: typeof extra.name === 'string' ? extra.name : 'Token',
-      version: typeof extra.version === 'string' ? extra.version : '1',
+      name: domainName,
+      version: domainVersion,
       chainId,
       verifyingContract: requirement.asset as Address,
     };
@@ -520,9 +522,12 @@ export class X402Service {
     };
 
     const hash = hashTransferAuthorizationTypedData(domain, message);
-    if (verbose) {
-      this.logDebug('EIP3009 hash', { hash, walletAddress: account.address, domain, message });
-    }
+    this.logVerbose(verbose, 'EIP3009 hash', {
+      hash,
+      walletAddress: account.address,
+      domain,
+      message,
+    });
     const signature = await this.signTypedDataHash(hash, account.address, chainId, verbose);
 
     const authorization = {
@@ -570,18 +575,16 @@ export class X402Service {
     const { packedHash, validationData } = await this.sdk.packRawHash(elytro1271Digest);
     const rawSignature = await this.keyring.signDigest(packedHash);
     const packed = await this.sdk.packUserOpSignature(rawSignature, validationData);
-    if (verbose) {
-      this.logDebug('EIP3009 signature components', {
-        transferTypedDataHash,
-        encoded1271Hash,
-        domainSeparator,
-        elytro1271Digest,
-        packedHash,
-        validationData,
-        rawSignature,
-        packed,
-      });
-    }
+    this.logVerbose(verbose, 'EIP3009 signature components', {
+      transferTypedDataHash,
+      encoded1271Hash,
+      domainSeparator,
+      elytro1271Digest,
+      packedHash,
+      validationData,
+      rawSignature,
+      packed,
+    });
     return packed;
   }
 
@@ -612,14 +615,15 @@ export class X402Service {
   }
 
   private isTransientFacilitatorFailure(finalStatus: number, body: string): boolean {
+    // 5xx from the upstream server (facilitator unreachable / intermittent error).
     if (finalStatus >= 500) return true;
+    // 402 whose body indicates the facilitator itself returned an empty 400 —
+    // a transient proxy-level issue, not a semantic payment rejection.
+    // Note: broad phrases like 'invalid payment' are intentionally excluded —
+    // they signal permanent rejections that retrying will not recover.
     if (finalStatus === 402) {
       const normalized = body.toLowerCase();
-      return (
-        normalized.includes('facilitator returned 400 bad request with no error') ||
-        normalized.includes('facilitator validation failed') ||
-        normalized.includes('invalid payment')
-      );
+      return normalized.includes('facilitator returned 400 bad request with no error');
     }
     return false;
   }
@@ -637,13 +641,14 @@ export class X402Service {
     if (!amount) {
       throw new Error('Payment requirement missing amount/maxAmountRequired.');
     }
-    if (!requirement.amount) {
-      requirement.amount = amount;
+    if (amount === '0') {
+      throw new Error('Payment requirement has zero amount.');
     }
     return amount;
   }
 
-  private logDebug(label: string, data: Record<string, unknown>): void {
+  private logVerbose(verbose: boolean, label: string, data: Record<string, unknown>): void {
+    if (!verbose) return;
     const safe = JSON.stringify(
       data,
       (_, value) => (typeof value === 'bigint' ? value.toString() : value),

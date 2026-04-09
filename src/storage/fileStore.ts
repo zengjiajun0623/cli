@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, access, chmod, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, access, chmod, rename, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -52,11 +52,15 @@ export class FileStore implements StorageAdapter {
     const tmp = `${path}.${randomBytes(4).toString('hex')}.tmp`;
     await writeFile(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
     await chmod(tmp, 0o600).catch(() => {});
-    await rename(tmp, path);
+    try {
+      await rename(tmp, path);
+    } catch (err) {
+      await unlink(tmp).catch(() => {});
+      throw err;
+    }
   }
 
   async remove(key: string): Promise<void> {
-    const { unlink } = await import('node:fs/promises');
     const path = this.filePath(key);
     try {
       await unlink(path);

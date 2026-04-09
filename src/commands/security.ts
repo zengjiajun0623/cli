@@ -311,26 +311,21 @@ async function handleOtpChallenge(
     );
   }
 
-  // Resolve challengeId: use from error, or fetch via requestSecurityOtp, or fallback to random id
+  // Resolve challengeId: use from hook error extension, or fetch via requestSecurityOtp
   let challengeId = err.challengeId;
   let maskedEmail = err.maskedEmail;
   let otpExpiresAt = err.otpExpiresAt;
 
   if (!challengeId) {
-    try {
-      const otpChallenge = await hookService.requestSecurityOtp(
-        account.address,
-        account.chainId,
-        ctx.sdk.entryPoint,
-        userOp,
-      );
-      challengeId = otpChallenge.challengeId;
-      maskedEmail ??= otpChallenge.maskedEmail;
-      otpExpiresAt ??= otpChallenge.otpExpiresAt;
-    } catch {
-      // Fallback: use locally generated id so command can exit with pending (otp submit may fail if backend requires its challengeId)
-      challengeId = generateOtpId();
-    }
+    const otpChallenge = await hookService.requestSecurityOtp(
+      account.address,
+      account.chainId,
+      ctx.sdk.entryPoint,
+      userOp,
+    );
+    challengeId = otpChallenge.challengeId;
+    maskedEmail ??= otpChallenge.maskedEmail;
+    otpExpiresAt ??= otpChallenge.otpExpiresAt;
   }
 
   const id = challengeId;

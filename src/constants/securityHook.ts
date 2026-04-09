@@ -1,8 +1,7 @@
 import type { Address } from 'viem';
 
 /**
- * SecurityHook contract addresses per chain.
- * Same address deployed across all supported chains.
+ * SecurityHook contract addresses per chain. Same for all chains
  */
 export const SECURITY_HOOK_ADDRESS_MAP: Record<number, Address> = {
   1: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Ethereum Mainnet
@@ -35,8 +34,11 @@ export const CAPABILITY_LABELS: Record<CapabilityFlag, string> = {
 /** Default: only UserOps go through hook (not plain signatures). */
 export const DEFAULT_CAPABILITY = CAPABILITY_FLAGS.USER_OP_ONLY;
 
-/** Default safety delay for force-uninstall countdown (seconds). */
-export const DEFAULT_SAFETY_DELAY = 2; // extension uses 2 for dev; production should be 7 * 24 * 60 * 60
+/**
+ * Default safety delay for force-uninstall countdown (seconds).
+ * Production value: 7 days (604800s). Dev override via ELYTRO_DEV_FAST_DELAY=1.
+ */
+export const DEFAULT_SAFETY_DELAY = process.env.ELYTRO_DEV_FAST_DELAY === '1' ? 2 : 604800;
 
 /**
  * Fake bytecode injected as state override during gas estimation

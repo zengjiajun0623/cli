@@ -147,7 +147,11 @@ export interface VaultData {
 export interface EncryptedData {
   data: string;
   iv: string;
-  salt: string;
+  /**
+   * Present for version 1 (PBKDF2) blobs. Absent for version 2 (raw key) blobs.
+   * Do not use an empty string as a sentinel — omit the field entirely for v2.
+   */
+  salt?: string;
   /** 1 = PBKDF2 password-based, 2 = raw vault key (via SecretProvider). Absent treated as 1. */
   version?: 1 | 2;
 }
