@@ -121,11 +121,11 @@ export class X402Service {
       : is402
         ? this.parsePaymentRequiredFromBody(initialBody)
         : (() => {
-          throw new Error(
-            `Server returned ${initialResponse.status} with a PAYMENT-REQUIRED header ` +
-            'but not a 402 status code. This is ambiguous — refusing to auto-pay.',
-          );
-        })();
+            throw new Error(
+              `Server returned ${initialResponse.status} with a PAYMENT-REQUIRED header ` +
+                'but not a 402 status code. This is ambiguous — refusing to auto-pay.',
+            );
+          })();
 
     if (options.verbose) {
       this.logDebug('PaymentRequired', {
@@ -210,14 +210,14 @@ export class X402Service {
 
     if (transferMethod === EXACT_ASSET_TRANSFER_METHODS.EIP3009) {
       const maxRetries = 3;
-      const retryDelayMs = 5000;
+      const retryBaseDelayMs = 1000;
       let lastFailure:
         | {
-          status: number;
-          body: string;
-          settlement: SettlementResponse | null;
-          authorization: { validAfter: string; validBefore: string; nonce: Hex };
-        }
+            status: number;
+            body: string;
+            settlement: SettlementResponse | null;
+            authorization: { validAfter: string; validBefore: string; nonce: Hex };
+          }
         | undefined;
 
       for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -269,18 +269,20 @@ export class X402Service {
         };
 
         const canRetry =
-          attempt < maxRetries && this.isTransientFacilitatorFailure(finalResponse.status, finalBody);
+          attempt < maxRetries &&
+          this.isTransientFacilitatorFailure(finalResponse.status, finalBody);
         if (!canRetry) break;
 
+        const delayMs = retryBaseDelayMs * 2 ** attempt;
         if (options.verbose) {
           this.logDebug('Retry', {
             reason: 'Transient facilitator rejection',
             attempt: attempt + 1,
             maxRetries,
-            delayMs: retryDelayMs,
+            delayMs,
           });
         }
-        await this.sleep(retryDelayMs);
+        await this.sleep(delayMs);
       }
 
       return {
@@ -291,9 +293,9 @@ export class X402Service {
         },
         final: lastFailure
           ? {
-            status: lastFailure.status,
-            body: lastFailure.body,
-          }
+              status: lastFailure.status,
+              body: lastFailure.body,
+            }
           : undefined,
         payment: {
           requirement,
@@ -610,13 +612,16 @@ export class X402Service {
   }
 
   private isTransientFacilitatorFailure(finalStatus: number, body: string): boolean {
-    if (finalStatus !== 402) return false;
-    const normalized = body.toLowerCase();
-    return (
-      normalized.includes('facilitator returned 400 bad request with no error') ||
-      normalized.includes('facilitator validation failed') ||
-      normalized.includes('invalid payment')
-    );
+    if (finalStatus >= 500) return true;
+    if (finalStatus === 402) {
+      const normalized = body.toLowerCase();
+      return (
+        normalized.includes('facilitator returned 400 bad request with no error') ||
+        normalized.includes('facilitator validation failed') ||
+        normalized.includes('invalid payment')
+      );
+    }
+    return false;
   }
 
   private safeNormalizeNetwork(network: string): string {
