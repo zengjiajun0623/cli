@@ -152,6 +152,7 @@ export class X402Service {
     }
 
     if (transferMethod === EXACT_ASSET_TRANSFER_METHODS.ERC7710) {
+      this.ensureOwnerAlignment(account);
       const managerAddress = this.extractDelegationManager(requirement);
       const amountStr = this.ensureRequirementAmount(requirement);
       const delegation = await this.delegation.findForPayment(options.account, {
@@ -476,6 +477,21 @@ export class X402Service {
     return payload;
   }
 
+  /**
+   * Verify that the keyring's active owner matches the account that will be signed for.
+   * Catches context synchronization bugs before they produce silent invalid signatures.
+   */
+  private ensureOwnerAlignment(account: AccountInfo): void {
+    const currentOwner = this.keyring.currentOwner;
+    if (!currentOwner || currentOwner.toLowerCase() !== account.owner.toLowerCase()) {
+      throw new Error(
+        `Signing context mismatch: keyring owner is ${currentOwner?.substring(0, 6)}, ` +
+          `but account ${account.alias ?? account.address} requires owner ${account.owner.substring(0, 6)}. ` +
+          `Context was not synchronized before signing.`,
+      );
+    }
+  }
+
   private async buildEip3009PaymentPayload(
     paymentRequired: PaymentRequired,
     requirement: PaymentRequirements,
@@ -485,6 +501,8 @@ export class X402Service {
     payload: PaymentPayload<{ signature: Hex; authorization: Record<string, string> }>;
     authorization: { validAfter: string; validBefore: string; nonce: Hex };
   }> {
+    this.ensureOwnerAlignment(account);
+
     const normalizedNetwork = this.safeNormalizeNetwork(requirement.network);
     const { namespace, reference } = parseCaip2Network(normalizedNetwork);
     if (namespace !== 'eip155') {
@@ -509,7 +527,7 @@ export class X402Service {
     };
 
     const now = Math.floor(Date.now() / 1000);
-    const validAfter = now.toString();
+    const validAfter = '0'; // now.toString()
     const window = requirement.maxTimeoutSeconds ?? 300;
     const validBefore = (now + window).toString();
     const nonce = randomAuthorizationNonce();

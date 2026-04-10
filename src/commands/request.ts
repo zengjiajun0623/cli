@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { outputError, outputResult } from '../utils/display';
-import type { AppContext } from '../context';
+import { type AppContext, syncContextForAccount } from '../context';
 import { X402Service } from '../services/x402';
 import { checkRecoveryBlocked } from '../utils/recoveryGuard';
 
@@ -132,6 +132,13 @@ export function registerRequestCommand(program: Command, ctx: AppContext): void 
 
         const headers = parseHeaders(options.header);
         const body = buildBody(options, headers);
+
+        const targetAccount = options.account
+          ? ctx.account.resolveAccount(options.account)
+          : ctx.account.currentAccount;
+        if (targetAccount) {
+          await syncContextForAccount(ctx, targetAccount);
+        }
 
         const result = await x402.performRequest({
           url,

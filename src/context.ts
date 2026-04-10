@@ -10,6 +10,7 @@ import {
 } from './services';
 import { resolveProvider } from './providers';
 import type { SecretProvider } from './providers';
+import type { AccountInfo } from './types';
 
 /**
  * Application context — the service container.
@@ -54,11 +55,6 @@ export async function createAppContext(): Promise<AppContext> {
   // Load persisted chain config
   await chain.init();
 
-  // Initialize chain-dependent services with config default first
-  const defaultChain = chain.currentChain;
-  walletClient.initForChain(defaultChain);
-  await sdk.initForChain(defaultChain);
-
   // Resolve secret provider (OS keychain > file > env var > null)
   const { loadProvider } = await resolveProvider();
 
@@ -100,6 +96,11 @@ export async function createAppContext(): Promise<AppContext> {
     const unlockedChain = chain.currentChain;
     walletClient.initForChain(unlockedChain);
     await sdk.initForChain(unlockedChain);
+  } else {
+    // No vault yet — init with public endpoints so commands like `init` work
+    const defaultChain = chain.currentChain;
+    walletClient.initForChain(defaultChain);
+    await sdk.initForChain(defaultChain);
   }
 
   const account = new AccountService({
@@ -134,21 +135,7 @@ export async function createAppContext(): Promise<AppContext> {
     keyring,
   });
 
-  // Re-initialize chain-dependent services to match the current account's chain.
-  // The config default (e.g. OP Sepolia) may differ from the account's actual chain.
-  const currentAccount = account.currentAccount;
-  if (currentAccount) {
-    const acctInfo = account.resolveAccount(currentAccount.alias ?? currentAccount.address);
-    if (acctInfo) {
-      const acctChain = chain.chains.find((c) => c.id === acctInfo.chainId);
-      if (acctChain && acctChain.id !== defaultChain.id) {
-        walletClient.initForChain(acctChain);
-        await sdk.initForChain(acctChain);
-      }
-    }
-  }
-
-  return {
+  const appCtx: AppContext = {
     store,
     keyring,
     chain,
@@ -159,6 +146,36 @@ export async function createAppContext(): Promise<AppContext> {
     recovery,
     secretProvider: loadProvider,
   };
+
+  const currentAccount = account.currentAccount;
+  if (currentAccount) {
+    await syncContextForAccount(appCtx, currentAccount);
+  }
+
+  return appCtx;
+}
+
+/**
+ * Synchronize keyring owner + chain-dependent services to match the given account.
+ *
+ * Must be called whenever the active account changes (switch, bootstrap, or
+ * before any signing operation on a specific account). Ensures:
+ *   1. keyring signs with the account's owner key
+ *   2. SDK + walletClient target the account's chain
+ */
+export async function syncContextForAccount(ctx: AppContext, account: AccountInfo): Promise<void> {
+  // 1. Switch keyring owner if mismatched
+  if (ctx.keyring.currentOwner?.toLowerCase() !== account.owner.toLowerCase()) {
+    await ctx.keyring.switchOwner(account.owner);
+  }
+
+  // 2. Re-init chain-dependent services for account's chain
+  const chainConfig = ctx.chain.chains.find((c) => c.id === account.chainId);
+  if (!chainConfig) {
+    throw new Error(`Chain ${account.chainId} is not configured.`);
+  }
+  ctx.walletClient.initForChain(chainConfig);
+  await ctx.sdk.initForChain(chainConfig);
 }
 
 /** Platform-specific hint when no secret provider is available. */

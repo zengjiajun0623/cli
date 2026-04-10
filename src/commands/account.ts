@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import { formatEther, padHex } from 'viem';
-import type { Address, Hex } from 'viem';
-import type { AppContext } from '../context';
+import type { Hex } from 'viem';
+import { type AppContext, syncContextForAccount } from '../context';
 import type { SecurityIntent } from '../types';
 import { askSelect } from '../utils/prompt';
 import { registerAccount, requestSponsorship, applySponsorToUserOp } from '../utils/sponsor';
@@ -520,12 +520,8 @@ export function registerAccountCommand(program: Command, ctx: AppContext): void 
       try {
         const switched = await ctx.account.switchAccount(identifier);
 
-        // Re-initialize chain-dependent services to match the new account's chain
+        await syncContextForAccount(ctx, switched);
         const newChain = ctx.chain.chains.find((c) => c.id === switched.chainId);
-        if (newChain) {
-          ctx.walletClient.initForChain(newChain);
-          await ctx.sdk.initForChain(newChain);
-        }
 
         // Fetch on-chain data for the result
         let balance: string | null = null;
