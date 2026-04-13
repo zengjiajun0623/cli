@@ -11,6 +11,7 @@ import { registerOtpCommand } from './commands/otp';
 import { registerConfigCommand } from './commands/config';
 import { registerUpdateCommand } from './commands/update';
 import { registerRecoveryCommand } from './commands/recovery';
+import { registerPolymarketCommand } from './commands/polymarket';
 import { runPrune } from './commands/prune';
 import { outputError, sanitizeErrorMessage } from './utils/display';
 import { VERSION } from './version';
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
     registerUpdateCommand(program);
 
     registerRecoveryCommand(program, ctx);
+    registerPolymarketCommand(program, ctx);
     // Phase 4: registerCallCommand(program, ctx);
 
     await program.parseAsync(process.argv);
