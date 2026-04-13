@@ -7,7 +7,7 @@ description: >
   Use for: accounts, transfers, contract calls, email/security setup, guardian recovery. Requires Node 18 or newer.
 metadata:
   openclaw:
-    version: 0.8.3
+    version: 0.8.9
     product-homepage: https://elytro.com
     requires:
       bins:
