@@ -34,7 +34,7 @@ elytro query balance
 - **Zero-interaction security** — vault key stored in the system keychain when available; otherwise Elytro falls back to `~/.elytro/.vault-key` with restricted permissions
 - **Flexible transaction building** — Single transfers, batch operations, contract calls via unified `--tx` syntax
 - **Transaction simulation** — Preview gas, paymaster sponsorship, and balance impact before sending
-- **Cross-chain support** — Manage accounts across Ethereum, Optimism, Arbitrum, Base, and testnets
+- **Cross-chain support** — Manage accounts across Ethereum, Optimism, Arbitrum, Polygon, Base, and testnets
 - **SecurityHook (2FA)** — Install on-chain 2FA with email OTP and daily spending limits
 - **Deferred OTP** — Commands that require OTP exit immediately after sending the code; complete later with `elytro otp submit <id> <code>`
 - **Self-updating** — `elytro update` detects your package manager and upgrades in place
@@ -46,6 +46,7 @@ elytro query balance
 | ---------------- | -------- |
 | Ethereum         | 1        |
 | Optimism         | 10       |
+| Polygon          | 137      |
 | Arbitrum One     | 42161    |
 | Base             | 8453     |
 | Sepolia          | 11155111 |

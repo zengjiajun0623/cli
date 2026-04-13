@@ -16,7 +16,7 @@ const ERR_INTERNAL = -32000;
  * `elytro token` — Look up token addresses from the Uniswap default-token-list.
  *
  * Data is fetched from GitHub and cached locally (~/.elytro/cache/) for 24h.
- * Supported mainnet chains: 1 (Ethereum), 10 (Optimism), 42161 (Arbitrum), 8453 (Base).
+ * Supported mainnet chains: 1 (Ethereum), 10 (Optimism), 137 (Polygon), 42161 (Arbitrum), 8453 (Base).
  *
  * Usage:
  *   elytro token                     # all tokens on the current account's chain

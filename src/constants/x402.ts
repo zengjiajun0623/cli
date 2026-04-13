@@ -32,6 +32,9 @@ const NETWORK_ALIASES: Record<string, string> = {
   'base-mainnet': 'eip155:8453',
   'base-goerli': 'eip155:84531',
   'base-sepolia': 'eip155:84532',
+  polygon: 'eip155:137',
+  'polygon-mainnet': 'eip155:137',
+  matic: 'eip155:137',
 };
 
 export function normalizeNetworkIdentifier(network: string): string {

@@ -6,6 +6,7 @@ import type { Address } from 'viem';
 export const SECURITY_HOOK_ADDRESS_MAP: Record<number, Address> = {
   1: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Ethereum Mainnet
   10: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Optimism
+  137: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Polygon
   42161: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Arbitrum One
   11155111: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Sepolia
   11155420: '0xd4e23c76e56532c0620f0b80e62918cc7ca9d442', // Optimism Sepolia

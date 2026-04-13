@@ -46,6 +46,7 @@ const NATIVE_ETH: Omit<TokenEntry, 'chainId'> = {
 const CHAIN_SLUG: Record<number, string> = {
   1: 'mainnet',
   10: 'optimism',
+  137: 'polygon',
   42161: 'arbitrum',
   8453: 'base',
 };

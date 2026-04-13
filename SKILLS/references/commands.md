@@ -77,7 +77,7 @@ CLI errors include `error.message`, `error.data.hint`, and `error.data.suggestio
 | --------------------------------------------------- | -------------------------------------------------------------------------- |
 | `token [--chain <id>] [--search <query>] [account]` | `Found <n> token(s).` One line per token: symbol, name, address, decimals. |
 
-Covers mainnet chains (1, 10, 42161, 8453). Testnets have no token list. `--chain` defaults to the current account's chain.
+Covers mainnet chains (1, 10, 137, 42161, 8453). Testnets have no token list. `--chain` defaults to the current account's chain.
 
 ### Swap / Bridge
 

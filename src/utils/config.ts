@@ -19,9 +19,9 @@ import type { CliConfig, ChainConfig } from '../types';
 const PUBLIC_RPC: Record<number, string> = {
   1: 'https://ethereum-rpc.publicnode.com',
   10: 'https://optimism-rpc.publicnode.com',
+  137: 'https://polygon-bor-rpc.publicnode.com',
   42161: 'https://arbitrum-one-rpc.publicnode.com',
   8453: 'https://base-rpc.publicnode.com',
-  137: 'https://polygon-bor-rpc.publicnode.com',
   11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
   11155420: 'https://optimism-sepolia-rpc.publicnode.com',
 };
@@ -29,9 +29,9 @@ const PUBLIC_RPC: Record<number, string> = {
 const PUBLIC_BUNDLER: Record<number, string> = {
   1: 'https://public.pimlico.io/v2/1/rpc',
   10: 'https://public.pimlico.io/v2/10/rpc',
+  137: 'https://public.pimlico.io/v2/137/rpc',
   42161: 'https://public.pimlico.io/v2/42161/rpc',
   8453: 'https://public.pimlico.io/v2/8453/rpc',
-  137: 'https://public.pimlico.io/v2/137/rpc',
   11155111: 'https://public.pimlico.io/v2/11155111/rpc',
   11155420: 'https://public.pimlico.io/v2/11155420/rpc',
 };
@@ -51,9 +51,9 @@ function alchemyUrl(network: string, key: string): string {
 const ALCHEMY_NETWORK: Record<number, string> = {
   1: 'eth-mainnet',
   10: 'opt-mainnet',
+  137: 'polygon-mainnet',
   42161: 'arb-mainnet',
   8453: 'base-mainnet',
-  137: 'polygon-mainnet',
   11155111: 'eth-sepolia',
   11155420: 'opt-sepolia',
 };
@@ -61,9 +61,9 @@ const ALCHEMY_NETWORK: Record<number, string> = {
 const PIMLICO_SLUG: Record<number, string> = {
   1: 'ethereum',
   10: 'optimism',
+  137: 'polygon',
   42161: 'arbitrum',
   8453: 'base',
-  137: 'polygon',
   11155111: 'sepolia',
   11155420: 'optimism-sepolia',
 };
@@ -107,6 +107,12 @@ const CHAIN_META: ChainMeta[] = [
     name: 'Optimism',
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     blockExplorer: 'https://optimistic.etherscan.io',
+  },
+  {
+    id: 137,
+    name: 'Polygon',
+    nativeCurrency: { name: 'Matic', symbol: 'MATIC', decimals: 18 },
+    blockExplorer: 'https://polygonscan.com',
   },
   {
     id: 42161,
