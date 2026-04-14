@@ -1,7 +1,10 @@
-import { parseUnits, type Address, type WalletClient } from 'viem';
-import { createWalletClient, http } from 'viem';
-import { polygon } from 'viem/chains';
+import { parseUnits, type Address } from 'viem';
+import type { privateKeyToAccount } from 'viem/accounts';
 import type { KeyringService } from './keyring';
+
+// A viem LocalAccount as returned by privateKeyToAccount — narrow helper type
+// so scopedSignTypedData doesn't need to know whether it's owner or subkey.
+type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -206,17 +209,23 @@ async function buildHmacSignature(
 
 // ─── Scoped Signer ─────────────────────────────────────────────────
 //
-// Security: the agent never gets a general-purpose signer.
-// This signer ONLY signs Polymarket-specific EIP-712 typed data:
-//   1. ClobAuthDomain  — for API key derivation
+// Security: this helper ONLY signs Polymarket-specific EIP-712 typed data:
+//   1. ClobAuthDomain          — for API key derivation
 //   2. Polymarket CTF Exchange — for order signing
-// Any other domain is rejected. This prevents the agent from signing
-// arbitrary transactions, token approvals, or messages via the EOA.
+// Any other domain is rejected. Combined with the subkey pattern (a scoped
+// EOA that is disjoint from any smart-account owner), an attacker that
+// reaches this signer can only produce Polymarket orders or CLOB auth,
+// and only for the balance sitting on the subkey — not the owner EOA or
+// any smart account the owner controls.
+//
+// The account argument is a viem LocalAccount — caller decides whether
+// that's an owner key or a subkey. Signing goes straight through
+// account.signTypedData, no walletClient needed.
 
 const ALLOWED_DOMAINS = new Set(['ClobAuthDomain', 'Polymarket CTF Exchange']);
 
 async function scopedSignTypedData(
-  keyring: KeyringService,
+  account: SigningAccount,
   params: {
     domain: { name?: string; [key: string]: unknown };
     types: Record<string, Array<{ name: string; type: string }>>;
@@ -232,20 +241,13 @@ async function scopedSignTypedData(
     );
   }
 
-  const account = keyring.getAccount();
-  const walletClient = createWalletClient({
-    account,
-    chain: polygon,
-    transport: http('https://polygon-bor-rpc.publicnode.com'),
-  });
-
-  return walletClient.signTypedData({
-    account,
+  return account.signTypedData({
     domain: params.domain,
     types: params.types,
     primaryType: params.primaryType,
+    // viem's signTypedData infers the message shape from types — cast to any-compatible.
     message: params.message,
-  } as Parameters<WalletClient['signTypedData']>[0]);
+  } as Parameters<SigningAccount['signTypedData']>[0]);
 }
 
 // ─── Polymarket Service ────────────────────────────────────────────
@@ -253,13 +255,33 @@ async function scopedSignTypedData(
 export class PolymarketService {
   private keyring: KeyringService;
   private creds: ApiKeyCreds | null = null;
+  /**
+   * If set, all trading signatures use this subkey (label or address) instead
+   * of the current smart-account owner key. Subkeys are scoped EOAs disjoint
+   * from owners — compromise bounded to subkey balance.
+   */
+  private subkeyRef: string | null = null;
 
-  constructor(keyring: KeyringService) {
+  constructor(keyring: KeyringService, subkeyRef?: string) {
     this.keyring = keyring;
+    this.subkeyRef = subkeyRef ?? null;
+  }
+
+  /** Returns the viem LocalAccount to use for Polymarket-scoped signing. */
+  private getSigningAccount(): SigningAccount {
+    if (this.subkeyRef) {
+      return this.keyring.getSubkeyAccount(this.subkeyRef);
+    }
+    return this.keyring.getAccount();
   }
 
   get signerAddress(): Address {
-    return this.keyring.getAccount().address;
+    return this.getSigningAccount().address;
+  }
+
+  /** Human-readable source label for display: "owner" or `subkey:<label>`. */
+  get signerSource(): string {
+    return this.subkeyRef ? `subkey:${this.subkeyRef}` : 'owner';
   }
 
   // ── L1 Auth: EIP-712 signature for API key creation ──────────────
@@ -271,7 +293,7 @@ export class PolymarketService {
     const ts = timestamp ?? Math.floor(Date.now() / 1000);
 
     // Uses scoped signer — only ClobAuthDomain is allowed
-    const sig = await scopedSignTypedData(this.keyring, {
+    const sig = await scopedSignTypedData(this.getSigningAccount(), {
       domain: CLOB_AUTH_DOMAIN,
       types: CLOB_AUTH_TYPES,
       primaryType: 'ClobAuth',
@@ -377,7 +399,10 @@ export class PolymarketService {
     if (params.active !== undefined) qs.set('active', String(params.active));
     if (params.closed !== undefined) qs.set('closed', String(params.closed));
     if (params.order) qs.set('order', params.order);
-    if (params.ascending) qs.set('ascending', 'true');
+    // Gamma defaults to ascending=true when an order is specified, which is
+    // almost never what a caller wants ("top N by volume" means descending).
+    // Always set the flag explicitly; default to descending.
+    qs.set('ascending', params.ascending ? 'true' : 'false');
 
     const res = await fetch(`${GAMMA_BASE}/markets?${qs}`);
     if (!res.ok) throw new Error(`Gamma API error: ${res.status}`);
@@ -587,7 +612,7 @@ export class PolymarketService {
     };
 
     // Sign using scoped signer — only "Polymarket CTF Exchange" domain is allowed
-    const signature = await scopedSignTypedData(this.keyring, {
+    const signature = await scopedSignTypedData(this.getSigningAccount(), {
       domain: { ...ORDER_DOMAIN, verifyingContract: exchangeAddress },
       types: ORDER_TYPES,
       primaryType: 'Order',

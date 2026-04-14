@@ -1,7 +1,7 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { Address, Hex } from 'viem';
 import { encryptWithKey, decryptWithKey, encrypt, decrypt } from '../utils/passworder';
-import type { StorageAdapter, VaultData, OwnerKey, EncryptedData } from '../types';
+import type { StorageAdapter, VaultData, OwnerKey, EncryptedData, SubKey } from '../types';
 
 const STORAGE_KEY = 'keyring';
 
@@ -175,6 +175,110 @@ export class KeyringService {
     await this.persistVault();
   }
 
+  // ─── Subkey management (scoped trading/agent keys) ──────────────
+
+  /**
+   * Generate a new subkey bound to the given smart account.
+   * Label must be unique within the vault. Private key lives only in
+   * keyBuffers — the persisted vault entry has an empty key field,
+   * filled in on encrypt via buildVaultWithKeys().
+   */
+  async createSubkey(opts: {
+    label: string;
+    scope: string;
+    boundAccount: Address;
+    boundChainId: number;
+  }): Promise<Address> {
+    this.ensureUnlocked();
+
+    const existing = this.vault!.subkeys ?? [];
+    if (existing.some((s) => s.label === opts.label)) {
+      throw new Error(`Subkey with label "${opts.label}" already exists.`);
+    }
+
+    const privateKey = generatePrivateKey();
+    const account = privateKeyToAccount(privateKey);
+
+    const subkey: SubKey = {
+      id: account.address,
+      key: '' as Hex,
+      label: opts.label,
+      scope: opts.scope,
+      boundAccount: opts.boundAccount,
+      boundChainId: opts.boundChainId,
+      createdAt: Date.now(),
+    };
+
+    this.vault!.subkeys = [...existing, subkey];
+    this.keyBuffers.set(account.address, hexToBytes(privateKey));
+    await this.persistVault();
+    return account.address;
+  }
+
+  /**
+   * List subkeys, optionally filtered. Returned entries have their
+   * key field blank — callers must use getSubkeyAccount to sign.
+   */
+  listSubkeys(filter?: { label?: string; scope?: string; boundAccount?: Address }): SubKey[] {
+    const all = this.vault?.subkeys ?? [];
+    const matches = all.filter((sk) => {
+      if (filter?.label && sk.label !== filter.label) return false;
+      if (filter?.scope && sk.scope !== filter.scope) return false;
+      if (
+        filter?.boundAccount &&
+        sk.boundAccount.toLowerCase() !== filter.boundAccount.toLowerCase()
+      )
+        return false;
+      return true;
+    });
+    return matches.map((sk) => ({ ...sk, key: '' as Hex }));
+  }
+
+  /**
+   * Get a viem LocalAccount for a subkey (by label or address).
+   * Use this for scope-specific signing. Throws if not found or locked.
+   */
+  getSubkeyAccount(labelOrAddress: string): ReturnType<typeof privateKeyToAccount> {
+    this.ensureUnlocked();
+    const sk = this.resolveSubkey(labelOrAddress);
+    const buf = this.keyBuffers.get(sk.id);
+    if (!buf) {
+      throw new Error(`Subkey key buffer missing for "${sk.label}" (${sk.id}).`);
+    }
+    const key = `0x${Buffer.from(buf).toString('hex')}` as Hex;
+    return privateKeyToAccount(key);
+  }
+
+  /**
+   * Remove a subkey from the vault.
+   * Scrubs the in-memory key buffer and re-persists the vault.
+   */
+  async removeSubkey(labelOrAddress: string): Promise<void> {
+    this.ensureUnlocked();
+    const sk = this.resolveSubkey(labelOrAddress);
+
+    const buf = this.keyBuffers.get(sk.id);
+    if (buf) {
+      buf.fill(0);
+      this.keyBuffers.delete(sk.id);
+    }
+
+    this.vault!.subkeys = (this.vault!.subkeys ?? []).filter((entry) => entry.id !== sk.id);
+    await this.persistVault();
+  }
+
+  private resolveSubkey(labelOrAddress: string): SubKey {
+    const subkeys = this.vault?.subkeys ?? [];
+    const isAddr = /^0x[0-9a-fA-F]{40}$/.test(labelOrAddress);
+    const found = isAddr
+      ? subkeys.find((s) => s.id.toLowerCase() === labelOrAddress.toLowerCase())
+      : subkeys.find((s) => s.label === labelOrAddress);
+    if (!found) {
+      throw new Error(`Subkey "${labelOrAddress}" not found in vault.`);
+    }
+    return found;
+  }
+
   // ─── Export / Import (password-based for portability) ───────────
 
   /**
@@ -191,7 +295,11 @@ export class KeyringService {
    * Import vault from a password-encrypted backup.
    * Decrypts with the backup password, then re-encrypts with vault key.
    */
-  async importVault(encrypted: EncryptedData, password: string, vaultKey: Uint8Array): Promise<void> {
+  async importVault(
+    encrypted: EncryptedData,
+    password: string,
+    vaultKey: Uint8Array,
+  ): Promise<void> {
     const vault = await decrypt<VaultData>(password, encrypted);
     this.vaultKey = new Uint8Array(vaultKey);
     // Encrypt before hydrating: hydrateKeyBuffers scrubs hex keys from vault
@@ -247,9 +355,10 @@ export class KeyringService {
   /**
    * Reconstruct a complete VaultData with hex keys sourced from keyBuffers.
    * Used by persistVault and exportVault — the live this.vault has keys scrubbed.
+   * Carries both owners and subkeys through.
    */
   private buildVaultWithKeys(): VaultData {
-    return {
+    const rehydrated: VaultData = {
       ...this.vault!,
       owners: this.vault!.owners.map((owner) => {
         const buf = this.keyBuffers.get(owner.id);
@@ -257,10 +366,20 @@ export class KeyringService {
         return { ...owner, key: `0x${Buffer.from(buf).toString('hex')}` as Hex };
       }),
     };
+
+    if (this.vault!.subkeys && this.vault!.subkeys.length > 0) {
+      rehydrated.subkeys = this.vault!.subkeys.map((sk) => {
+        const buf = this.keyBuffers.get(sk.id);
+        if (!buf) throw new Error(`Key buffer missing for subkey ${sk.label} (${sk.id})`);
+        return { ...sk, key: `0x${Buffer.from(buf).toString('hex')}` as Hex };
+      });
+    }
+
+    return rehydrated;
   }
 
   /**
-   * Convert vault owner hex keys into scrubbable Uint8Array buffers,
+   * Convert vault owner + subkey hex keys into scrubbable Uint8Array buffers,
    * then scrub the hex strings from the in-memory vault so the sole live
    * copy of each private key is the zero-fillable Uint8Array in keyBuffers.
    * Called after decryption (unlock, createNewOwner, importVault).
@@ -276,6 +395,13 @@ export class KeyringService {
       this.keyBuffers.set(owner.id, hexToBytes(owner.key));
       // Scrub hex key from in-memory vault — keyBuffers is now the sole live copy
       owner.key = '' as Hex;
+    }
+
+    if (vault.subkeys) {
+      for (const sk of vault.subkeys) {
+        this.keyBuffers.set(sk.id, hexToBytes(sk.key));
+        sk.key = '' as Hex;
+      }
     }
   }
 }

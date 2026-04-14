@@ -12,6 +12,7 @@ import { registerConfigCommand } from './commands/config';
 import { registerUpdateCommand } from './commands/update';
 import { registerRecoveryCommand } from './commands/recovery';
 import { registerPolymarketCommand } from './commands/polymarket';
+import { registerSubkeyCommand } from './commands/subkey';
 import { runPrune } from './commands/prune';
 import { outputError, sanitizeErrorMessage } from './utils/display';
 import { VERSION } from './version';
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
 
     registerRecoveryCommand(program, ctx);
     registerPolymarketCommand(program, ctx);
+    registerSubkeyCommand(program, ctx);
     // Phase 4: registerCallCommand(program, ctx);
 
     await program.parseAsync(process.argv);

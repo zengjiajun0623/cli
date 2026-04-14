@@ -43,15 +43,25 @@ const ERR_INVALID_PARAMS = -32602;
 const ERR_INTERNAL = -32000;
 
 // ─── Credential Persistence ────────────────────────────────────────
+//
+// Keyed by trader address (lowercase) so owner + each subkey maintain
+// separate CLOB credentials. Before this was a single global key, which
+// leaked auth across signer identities when --subkey was introduced.
 
-const POLY_CREDS_KEY = 'polymarket-creds';
-
-async function loadCreds(ctx: AppContext): Promise<ApiKeyCreds | null> {
-  return ctx.store.load<ApiKeyCreds>(POLY_CREDS_KEY);
+function credsStorageKey(traderAddress: Address): string {
+  return `polymarket-creds:${traderAddress.toLowerCase()}`;
 }
 
-async function saveCreds(ctx: AppContext, creds: ApiKeyCreds): Promise<void> {
-  await ctx.store.save(POLY_CREDS_KEY, creds);
+async function loadCreds(ctx: AppContext, traderAddress: Address): Promise<ApiKeyCreds | null> {
+  return ctx.store.load<ApiKeyCreds>(credsStorageKey(traderAddress));
+}
+
+async function saveCreds(
+  ctx: AppContext,
+  traderAddress: Address,
+  creds: ApiKeyCreds,
+): Promise<void> {
+  await ctx.store.save(credsStorageKey(traderAddress), creds);
 }
 
 function ensureUnlocked(ctx: AppContext): void {
@@ -60,22 +70,24 @@ function ensureUnlocked(ctx: AppContext): void {
   }
 }
 
-function createPolyService(ctx: AppContext): PolymarketService {
+function createPolyService(ctx: AppContext, subkeyRef?: string): PolymarketService {
   ensureUnlocked(ctx);
-  return new PolymarketService(ctx.keyring);
+  return new PolymarketService(ctx.keyring, subkeyRef);
 }
 
 async function ensureAuth(ctx: AppContext, svc: PolymarketService): Promise<void> {
   if (svc.isAuthenticated) return;
 
-  // Try loading persisted credentials
-  const saved = await loadCreds(ctx);
+  // Try loading persisted credentials keyed on the current signer address
+  const saved = await loadCreds(ctx, svc.signerAddress);
   if (saved) {
     svc.setCreds(saved);
     return;
   }
 
-  throw new Error('Not authenticated with Polymarket. Run `elytro polymarket auth` first.');
+  throw new Error(
+    `Not authenticated with Polymarket for ${svc.signerSource} (${svc.signerAddress}). Run \`elytro polymarket ${svc.signerSource.startsWith('subkey:') ? `--subkey ${svc.signerSource.slice(7)} ` : ''}auth\` first.`,
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -123,7 +135,11 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
   const poly = program
     .command('polymarket')
     .alias('pm')
-    .description('Polymarket prediction market trading via Elytro wallet');
+    .description('Polymarket prediction market trading via Elytro wallet')
+    .option(
+      '--subkey <label>',
+      'Scoped trading subkey label (falls back to smart-account owner key if omitted)',
+    );
 
   // ── auth ─────────────────────────────────────────────────────────
 
@@ -135,7 +151,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (opts: { create?: boolean; nonce?: string }) => {
       const spinner = ora('Authenticating with Polymarket...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const nonce = parseInt(opts.nonce ?? '0', 10);
         let creds: ApiKeyCreds;
 
@@ -151,13 +167,14 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
           }
         }
 
-        await saveCreds(ctx, creds);
+        await saveCreds(ctx, svc.signerAddress, creds);
         spinner.succeed('Authenticated with Polymarket.');
         outputResult({
           status: 'authenticated',
+          signerSource: svc.signerSource,
           address: svc.signerAddress,
           apiKey: creds.key,
-          hint: 'Credentials saved locally. You can now trade.',
+          hint: `Credentials saved locally (keyed on ${svc.signerAddress}). You can now trade.`,
         });
       } catch (err) {
         spinner.fail('Authentication failed.');
@@ -173,34 +190,49 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .option('--active', 'Only active markets')
     .option('--limit <n>', 'Max results', '10')
     .option('--search <query>', 'Search markets by keyword')
-    .action(async (opts: { active?: boolean; limit?: string; search?: string }) => {
-      const spinner = ora('Fetching markets...').start();
-      try {
-        const svc = createPolyService(ctx);
-        const limit = parseInt(opts.limit ?? '10', 10);
+    .option(
+      '--order <field>',
+      'Sort field: volume_num (all-time vol, default), volume24hr (trending today), liquidityClob, etc',
+      'volume_num',
+    )
+    .option('--ascending', 'Sort ascending instead of descending')
+    .action(
+      async (opts: {
+        active?: boolean;
+        limit?: string;
+        search?: string;
+        order?: string;
+        ascending?: boolean;
+      }) => {
+        const spinner = ora('Fetching markets...').start();
+        try {
+          const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
+          const limit = parseInt(opts.limit ?? '10', 10);
 
-        let markets: GammaMarket[];
-        if (opts.search) {
-          markets = await svc.searchMarkets(opts.search, limit);
-        } else {
-          markets = await svc.getMarkets({
-            active: opts.active,
-            limit,
-            order: 'volume_num',
-          });
-        }
+          let markets: GammaMarket[];
+          if (opts.search) {
+            markets = await svc.searchMarkets(opts.search, limit);
+          } else {
+            markets = await svc.getMarkets({
+              active: opts.active,
+              limit,
+              order: opts.order ?? 'volume_num',
+              ascending: opts.ascending,
+            });
+          }
 
-        spinner.stop();
-        if (markets.length === 0) {
-          outputResult({ markets: [], message: 'No markets found.' });
-          return;
+          spinner.stop();
+          if (markets.length === 0) {
+            outputResult({ markets: [], message: 'No markets found.' });
+            return;
+          }
+          outputResult({ markets: markets.map(formatMarket) });
+        } catch (err) {
+          spinner.fail('Failed to fetch markets.');
+          outputError(ERR_INTERNAL, sanitizeErrorMessage((err as Error).message));
         }
-        outputResult({ markets: markets.map(formatMarket) });
-      } catch (err) {
-        spinner.fail('Failed to fetch markets.');
-        outputError(ERR_INTERNAL, sanitizeErrorMessage((err as Error).message));
-      }
-    });
+      },
+    );
 
   // ── market (single) ──────────────────────────────────────────────
 
@@ -211,7 +243,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (id: string) => {
       const spinner = ora('Fetching market...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const market = await svc.getMarket(id);
         spinner.stop();
 
@@ -243,7 +275,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .option('--side <side>', 'BUY or SELL', 'BUY')
     .action(async (tokenId: string, opts: { side: string }) => {
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const side = parseSide(opts.side);
         const result = await svc.getPrice(tokenId, side);
         outputResult({ tokenId, side, ...result });
@@ -260,7 +292,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .argument('<token_id>', 'Conditional token ID')
     .action(async (tokenId: string) => {
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const result = await svc.getMidpoint(tokenId);
         outputResult({ tokenId, ...result });
       } catch (err) {
@@ -277,7 +309,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (tokenId: string) => {
       const spinner = ora('Fetching order book...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const book = await svc.getOrderBook(tokenId);
         spinner.stop();
 
@@ -305,7 +337,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .argument('<token_id>', 'Conditional token ID')
     .action(async (tokenId: string) => {
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const result = await svc.getSpread(tokenId);
         outputResult({ tokenId, ...result });
       } catch (err) {
@@ -322,7 +354,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (opts: { tokenId?: string }) => {
       const spinner = ora('Querying Polymarket balance...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         await ensureAuth(ctx, svc);
 
         if (opts.tokenId) {
@@ -349,7 +381,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (opts: { market?: string }) => {
       const spinner = ora('Fetching open orders...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         await ensureAuth(ctx, svc);
 
         const orders = await svc.getOpenOrders({ market: opts.market });
@@ -398,7 +430,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
       }) => {
         const spinner = ora('Placing order...').start();
         try {
-          const svc = createPolyService(ctx);
+          const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
           await ensureAuth(ctx, svc);
 
           const price = parseFloat(opts.price);
@@ -446,7 +478,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .action(async (orderId?: string, opts?: { all?: boolean }) => {
       const spinner = ora('Cancelling...').start();
       try {
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         await ensureAuth(ctx, svc);
 
         if (opts?.all) {
@@ -467,6 +499,208 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
       }
     });
 
+  // ── approve (one-off: subkey/owner → USDC + CTF approvals for CTFExchange) ──
+  //
+  // Minimal approval path needed before the first trade. For neg-risk markets
+  // pass --neg-risk to target the NegRiskExchange + NegRiskAdapter instead.
+  // Uses direct EOA tx signing from the active signer (subkey or owner),
+  // NOT a UserOp — approvals live on whatever EOA ends up being the CLOB maker.
+
+  poly
+    .command('approve')
+    .description('Set USDC + CTF approvals on the active signer (subkey or owner)')
+    .option('--neg-risk', 'Approve NegRiskExchange + NegRiskAdapter instead of CTFExchange')
+    .action(async (opts: { negRisk?: boolean }) => {
+      const spinner = ora('Approving...').start();
+      try {
+        ensureUnlocked(ctx);
+        const subkeyRef = (poly.opts() as { subkey?: string }).subkey;
+        const svc = createPolyService(ctx, subkeyRef);
+
+        const viemAccount = subkeyRef
+          ? ctx.keyring.getSubkeyAccount(subkeyRef)
+          : ctx.keyring.getAccount();
+
+        // Pick the right chain: for subkey, use its bound chain; for owner, use active account's chain.
+        // DO NOT rely on ctx.chain.currentChain — that's the CLI config's default,
+        // which can be stale relative to the active account.
+        const currentAccount = ctx.account.currentAccount;
+        const targetChainId = subkeyRef
+          ? (() => {
+              const list = ctx.keyring.listSubkeys();
+              const sk = list.find((s) => s.label === subkeyRef || s.id === subkeyRef);
+              if (!sk) throw new Error(`Subkey "${subkeyRef}" not found.`);
+              return sk.boundChainId;
+            })()
+          : (currentAccount?.chainId ?? 137);
+        const chainConfig = ctx.chain.chains.find((c) => c.id === targetChainId);
+        if (!chainConfig) {
+          throw new Error(`Chain ${targetChainId} not in CLI config.`);
+        }
+        // Polymarket contracts only live on Polygon.
+        if (targetChainId !== 137) {
+          throw new Error(
+            `Polymarket approvals only make sense on Polygon (137), got chain ${targetChainId}.`,
+          );
+        }
+
+        const { createWalletClient, createPublicClient, http } = await import('viem');
+        const { polygon } = await import('viem/chains');
+
+        const walletClient = createWalletClient({
+          account: viemAccount,
+          chain: polygon,
+          transport: http(chainConfig.endpoint),
+        });
+
+        // Separate public client for waitForTransactionReceipt between sends.
+        // Without this wait, a second back-to-back send with an explicit next
+        // nonce can be silently dropped by some RPCs even though the first
+        // landed successfully (observed on Polygon public RPC).
+        const publicClient = createPublicClient({
+          chain: polygon,
+          transport: http(chainConfig.endpoint),
+        });
+
+        // Fetch gas price from the *correct* RPC (the subkey's bound chain),
+        // add 20% buffer, use legacy tx type. viem's auto fee estimation on
+        // Polygon can over-reserve via fee history.
+        const rawGasPrice = await walletClient.request({ method: 'eth_gasPrice' });
+        const gasPrice = (BigInt(rawGasPrice as string) * 120n) / 100n;
+
+        // Contracts (Polygon mainnet)
+        const CTF_EXCHANGE = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E' as Address;
+        const NEG_RISK_EXCHANGE = '0xC5d563A36AE78145C45a50134d48A1215220f80a' as Address;
+        const NEG_RISK_ADAPTER = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296' as Address;
+        const CONDITIONAL_TOKENS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045' as Address;
+        const MAX_UINT256 = 2n ** 256n - 1n;
+
+        const ERC20_APPROVE_ABI = [
+          {
+            name: 'approve',
+            type: 'function',
+            stateMutability: 'nonpayable',
+            inputs: [
+              { name: 'spender', type: 'address' },
+              { name: 'amount', type: 'uint256' },
+            ],
+            outputs: [{ name: '', type: 'bool' }],
+          },
+        ] as const;
+
+        const CTF_SET_APPROVAL_ABI = [
+          {
+            name: 'setApprovalForAll',
+            type: 'function',
+            stateMutability: 'nonpayable',
+            inputs: [
+              { name: 'operator', type: 'address' },
+              { name: 'approved', type: 'bool' },
+            ],
+            outputs: [],
+          },
+        ] as const;
+
+        // Target set: non-neg-risk = [CTFExchange]; neg-risk = [NegRiskExchange, NegRiskAdapter]
+        const targets: Array<{ spender: Address; label: string }> = opts.negRisk
+          ? [
+              { spender: NEG_RISK_EXCHANGE, label: 'NegRiskExchange' },
+              { spender: NEG_RISK_ADAPTER, label: 'NegRiskAdapter' },
+            ]
+          : [{ spender: CTF_EXCHANGE, label: 'CTFExchange' }];
+
+        const txs: Array<{ kind: string; label: string; txHash: `0x${string}` }> = [];
+
+        for (const t of targets) {
+          // Skip if already approved (idempotent — lets users rerun approve safely)
+          const currentUsdcAllowance = (await publicClient.readContract({
+            address: USDC_ADDRESS,
+            abi: [
+              {
+                name: 'allowance',
+                type: 'function',
+                stateMutability: 'view',
+                inputs: [
+                  { name: 'owner', type: 'address' },
+                  { name: 'spender', type: 'address' },
+                ],
+                outputs: [{ name: '', type: 'uint256' }],
+              },
+            ] as const,
+            functionName: 'allowance',
+            args: [svc.signerAddress, t.spender],
+          })) as bigint;
+
+          if (currentUsdcAllowance < MAX_UINT256 / 2n) {
+            spinner.text = `Approving USDC → ${t.label}...`;
+            const usdcCalldata = encodeFunctionData({
+              abi: ERC20_APPROVE_ABI,
+              functionName: 'approve',
+              args: [t.spender, MAX_UINT256],
+            });
+            const hash1 = await walletClient.sendTransaction({
+              to: USDC_ADDRESS,
+              data: usdcCalldata,
+              gas: 80000n,
+              gasPrice,
+            } as Parameters<typeof walletClient.sendTransaction>[0]);
+            // CRITICAL: wait for confirmation before sending the next tx.
+            // Some RPCs silently drop a second tx with an incremented nonce if
+            // the first hasn't been mined yet — observed on Polygon public RPC.
+            await publicClient.waitForTransactionReceipt({ hash: hash1 });
+            txs.push({ kind: 'USDC.approve', label: t.label, txHash: hash1 });
+          }
+
+          const currentCtfApproval = (await publicClient.readContract({
+            address: CONDITIONAL_TOKENS,
+            abi: [
+              {
+                name: 'isApprovedForAll',
+                type: 'function',
+                stateMutability: 'view',
+                inputs: [
+                  { name: 'owner', type: 'address' },
+                  { name: 'operator', type: 'address' },
+                ],
+                outputs: [{ name: '', type: 'bool' }],
+              },
+            ] as const,
+            functionName: 'isApprovedForAll',
+            args: [svc.signerAddress, t.spender],
+          })) as boolean;
+
+          if (!currentCtfApproval) {
+            spinner.text = `Approving CTF → ${t.label}...`;
+            const ctfCalldata = encodeFunctionData({
+              abi: CTF_SET_APPROVAL_ABI,
+              functionName: 'setApprovalForAll',
+              args: [t.spender, true],
+            });
+            const hash2 = await walletClient.sendTransaction({
+              to: CONDITIONAL_TOKENS,
+              data: ctfCalldata,
+              gas: 70000n,
+              gasPrice,
+            } as Parameters<typeof walletClient.sendTransaction>[0]);
+            await publicClient.waitForTransactionReceipt({ hash: hash2 });
+            txs.push({ kind: 'CTF.setApprovalForAll', label: t.label, txHash: hash2 });
+          }
+        }
+
+        spinner.stop();
+        outputResult({
+          status: 'approved',
+          signer: svc.signerAddress,
+          signerSource: svc.signerSource,
+          negRisk: !!opts.negRisk,
+          approvals: txs,
+        });
+      } catch (err) {
+        spinner.fail('Approve failed.');
+        outputError(ERR_INTERNAL, sanitizeErrorMessage((err as Error).message));
+      }
+    });
+
   // ── deposit (smart account → EOA, goes through 2FA + spending limits) ──
 
   poly
@@ -477,7 +711,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
       const spinner = ora('Preparing deposit...').start();
       try {
         ensureUnlocked(ctx);
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
         const eoaAddress = svc.signerAddress;
 
         const amount = parseFloat(opts.amount);
@@ -572,7 +806,7 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
       const spinner = ora('Preparing withdrawal...').start();
       try {
         ensureUnlocked(ctx);
-        const svc = createPolyService(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
 
         const account = ctx.account.currentAccount;
         if (!account) throw new Error('No active Elytro account.');
@@ -646,22 +880,24 @@ export function registerPolymarketCommand(program: Command, ctx: AppContext): vo
     .description('Show Polymarket wallet info and auth status')
     .action(async () => {
       try {
-        const svc = createPolyService(ctx);
-        const creds = await loadCreds(ctx);
+        const svc = createPolyService(ctx, (poly.opts() as { subkey?: string }).subkey);
+        const creds = await loadCreds(ctx, svc.signerAddress);
         const account = ctx.account.currentAccount;
         outputResult({
           vault: account
             ? { address: account.address, chain: account.chainId, alias: account.alias }
             : null,
           trader: svc.signerAddress,
+          signerSource: svc.signerSource,
           authenticated: !!creds,
           apiKey: creds ? creds.key : null,
           chain: 'Polygon (137)',
           exchange: '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E',
-          hint:
-            account?.chainId === 137
-              ? 'Use `elytro pm deposit` to move USDC from vault → trader (triggers 2FA).'
-              : 'Create a Polygon account with `elytro account create --chain 137` for vault security.',
+          hint: svc.signerSource.startsWith('subkey:')
+            ? `Use \`elytro subkey fund ${svc.signerSource.slice(7)} --usdc <amount> --native 0.1\` to fund, then trade with \`elytro pm --subkey ${svc.signerSource.slice(7)} order ...\`.`
+            : account?.chainId === 137
+              ? 'Use `elytro subkey create <label>` + `elytro subkey fund <label>` for a scoped trading key instead of the owner EOA.'
+              : 'Create a Polygon account with `elytro account create --chain 137` first.',
         });
       } catch (err) {
         outputError(ERR_INTERNAL, sanitizeErrorMessage((err as Error).message));
