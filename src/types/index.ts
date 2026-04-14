@@ -102,9 +102,46 @@ export interface OwnerKey {
   key: Hex;
 }
 
+/**
+ * Scoped trading/agent key, disjoint from `owners`.
+ *
+ * A SubKey is a regular EOA that the vault stores for use by a specific
+ * scope (e.g. Polymarket CLOB trading). It is NOT an owner of any Elytro
+ * smart account — compromising a subkey cannot drain the vault's smart
+ * accounts, only whatever balance sits on the subkey's own address.
+ *
+ * The intended lifecycle:
+ *   create  → vault generates a fresh EOA, binds it to the current smart account
+ *   fund    → batched UserOp from bound smart account → subkey (gated by SecurityHook)
+ *   use     → skill/service signs scope-specific typed data with subkey
+ *   sweep   → direct EOA tx from subkey → bound smart account
+ *   remove  → scrubs key from vault
+ */
+export interface SubKey {
+  /** EOA address derived from the subkey's private key */
+  id: Address;
+  /** Hex-encoded private key (scrubbed to keyBuffers at rest like owners) */
+  key: Hex;
+  /** Unique human-readable label per vault, e.g. "polymarket-main" */
+  label: string;
+  /** Scope hint describing intended use, e.g. "polymarket-clob" */
+  scope: string;
+  /** Elytro smart account address this subkey is bound to (fund/sweep destination) */
+  boundAccount: Address;
+  /** Chain ID the bound smart account lives on */
+  boundChainId: number;
+  /** Unix ms timestamp of creation */
+  createdAt: number;
+}
+
 export interface VaultData {
   owners: OwnerKey[];
   currentOwnerId: Address;
+  /**
+   * Scoped trading/agent keys, disjoint from `owners`.
+   * Optional for backward compatibility with pre-subkey vaults.
+   */
+  subkeys?: SubKey[];
 }
 
 export interface EncryptedData {
